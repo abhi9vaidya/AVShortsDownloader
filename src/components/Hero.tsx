@@ -20,6 +20,7 @@ const Hero = () => {
           <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
             Save your favorite YouTube Shorts videos in high quality. 
             Free, fast, and no registration required.
+            Dilo ka shooter, hai mera scooter :))
           </p>
           
           <Button 

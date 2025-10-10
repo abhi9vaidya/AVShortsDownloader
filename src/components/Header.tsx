@@ -9,7 +9,7 @@ const Header = () => {
           <div className="w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center">
             <Play className="w-5 h-5 text-primary-foreground fill-current" />
           </div>
-          <span className="text-xl font-bold text-foreground">ShortsDownloader</span>
+          <span className="text-xl font-bold text-foreground">AVShortsDownloader :)</span>
         </div>
         
         <nav className="hidden md:flex items-center gap-6">

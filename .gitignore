@@ -22,3 +22,38 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+@'
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Vite / build
+dist/
+build/
+
+# Backend downloads & temp
+backend/downloads/
+backend/*.log
+*.mp4
+*.mp3
+*.tmp
+*.temp
+
+# IDE / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+test.mp4
+
+# Misc
+*.log
+'@ > .gitignore
