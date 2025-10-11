@@ -17,12 +17,13 @@ COPY package.json package-lock.json* ./
 # Debug: list files before install
 RUN echo ">>> Files before npm install (builder):" && ls -la /usr/src/app || true
 
-# Install production deps (npm ci if lockfile exists, fallback to npm install)
+# Install production deps but ignore lifecycle scripts (skip postinstall)
 RUN if [ -f package-lock.json ]; then \
-      npm ci --only=production || (echo ">>> npm ci failed - dumping npm logs:" && cat /root/.npm/_logs/* || true; exit 1); \
+      npm ci --only=production --ignore-scripts || (echo ">>> npm ci failed - dumping npm logs:" && cat /root/.npm/_logs/* || true; exit 1); \
     else \
-      npm install --only=production || (echo ">>> npm install failed - dumping npm logs:" && cat /root/.npm/_logs/* || true; exit 1); \
+      npm install --only=production --ignore-scripts || (echo ">>> npm install failed - dumping npm logs:" && cat /root/.npm/_logs/* || true; exit 1); \
     fi
+
 
 # Copy the rest of the backend source into builder
 COPY . ./
