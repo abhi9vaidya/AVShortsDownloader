@@ -14,7 +14,6 @@ const os = require('os');
 const { join } = require('path');
 const fsSync = require('fs'); // for createReadStream & unlinkSync
 
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -35,8 +34,31 @@ require('dotenv').config();
 let nodemailer;
 try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
 
-const DOWNLOADS_DIR = path.join(__dirname, "downloads");
-fs.mkdir(DOWNLOADS_DIR, { recursive: true }).catch(console.error);
+// -------------------- DOWNLOADS DIR SETUP --------------------
+// Use env override if provided, otherwise try ./downloads
+let DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(__dirname, "downloads");
+
+// Attempt to create DOWNLOADS_DIR; if that fails, fall back to a tmp directory
+const initDownloadsDir = (async () => {
+  try {
+    await fs.mkdir(DOWNLOADS_DIR, { recursive: true });
+    // success
+    console.log('Downloads directory ready at', DOWNLOADS_DIR);
+  } catch (err) {
+    console.warn('Could not create downloads dir at', DOWNLOADS_DIR, err && err.code);
+    // fallback to tmp dir
+    const fallback = path.join(os.tmpdir(), 'avshorts-downloads');
+    try {
+      await fs.mkdir(fallback, { recursive: true });
+      DOWNLOADS_DIR = fallback;
+      process.env.DOWNLOADS_DIR = DOWNLOADS_DIR;
+      console.log('Using fallback downloads dir:', DOWNLOADS_DIR);
+    } catch (err2) {
+      console.error('Failed to create fallback tmp downloads dir:', err2 && err2.message);
+      // leave DOWNLOADS_DIR as-is; endpoints that write will error later
+    }
+  }
+})();
 
 // ------------------ ROUTES ------------------
 
@@ -179,7 +201,6 @@ app.post("/api/video-info", async (req, res) => {
 
 // Robust /api/download with play-dl then yt-dlp fallback
 
-
 // Robust /api/download handler: play-dl first, yt-dlp (spawn) fallback
 app.post("/api/download", async (req, res) => {
   try {
@@ -205,9 +226,9 @@ app.post("/api/download", async (req, res) => {
       // If quality is a number-like string or number, pass it; otherwise call without second arg
       let streamInfo;
       if (quality && !isNaN(Number(quality))) {
-        streamInfo = await play.stream(url, { quality: Number(quality) }).catch(e => { 
-          console.warn("[download] play.stream (with numeric quality) failed:", e?.message || e); 
-          return null; 
+        streamInfo = await play.stream(url, { quality: Number(quality) }).catch(e => {
+          console.warn("[download] play.stream (with numeric quality) failed:", e?.message || e);
+          return null;
         });
       } else {
         streamInfo = await play.stream(url).catch(e => {
@@ -416,7 +437,7 @@ app.post("/api/download-audio", async (req, res) => {
     // Try play-dl first
     try {
       // Choose best audio quality or a numeric itag if provided
-  let playQuality = 'highestaudio';
+      let playQuality = 'highestaudio';
       if (quality && String(quality).toLowerCase() !== 'highest' && !isNaN(Number(quality))) {
         playQuality = Number(quality);
       }
@@ -636,9 +657,17 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Something went wrong!" });
 });
 
-// Start server
-const server = app.listen(PORT, "0.0.0.0", () => {
-  const addr = server.address();
-  console.log(`🚀 Swift Shorts Downloader Backend running at http://${addr.address}:${addr.port}`);
-  console.log(`📁 Downloads directory: ${DOWNLOADS_DIR}`);
-});
+// Start server only after downloads dir init completes
+(async () => {
+  try {
+    await initDownloadsDir;
+  } catch (e) {
+    // already logged inside initDownloadsDir; continue to start server anyway
+  }
+
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    const addr = server.address();
+    console.log(`🚀 Swift Shorts Downloader Backend running at http://${addr.address}:${addr.port}`);
+    console.log(`📁 Downloads directory: ${DOWNLOADS_DIR}`);
+  });
+})();
