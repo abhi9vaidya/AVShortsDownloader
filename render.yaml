@@ -1,0 +1,20 @@
+# Render manifest: defines backend Docker web service and frontend static site
+services:
+  - type: web
+    name: shorts-backend
+    env: docker
+    dockerfilePath: backend/Dockerfile
+    repo: https://github.com/<YOUR_ORG_OR_USER>/swift-shorts-downloader
+    branch: main
+    plan: free
+    buildCommand: ""
+    startCommand: ""
+
+  - type: static
+    name: shorts-frontend
+    env: static
+    repo: https://github.com/<YOUR_ORG_OR_USER>/swift-shorts-downloader
+    branch: main
+    buildCommand: npm ci && npm run build
+    publishPath: dist
+    plan: free
