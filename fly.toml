@@ -1,0 +1,7 @@
+app = "shorts-backend"
+
+[build]
+  image = "ghcr.io/REPLACE_OWNER/swift-shorts-downloader-backend:latest"
+
+[env]
+  PORT = "8080"

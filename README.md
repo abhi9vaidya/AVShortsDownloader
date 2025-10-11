@@ -71,3 +71,20 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+## Deployment (GitHub Actions + Fly.io + GitHub Pages)
+
+This repo includes a CI workflow that builds the backend Docker image, pushes it to GitHub Container Registry (GHCR), deploys the backend to Fly.io, then builds the frontend and publishes it to GitHub Pages.
+
+Required GitHub repository secrets:
+- `FLY_API_TOKEN` - Fly.io API token
+- `FLY_APP_NAME` - Fly app name (the Fly app's subdomain will be `<FLY_APP_NAME>.fly.dev`)
+
+Quick steps:
+1. Create a Fly app locally:
+	- Install flyctl: https://fly.io/docs/hands-on/install-flyctl/
+	- `flyctl apps create <your-app-name>`
+2. In GitHub repository settings, add `FLY_API_TOKEN` and `FLY_APP_NAME` to Secrets.
+3. Push to `main`. The action will build and deploy the backend to Fly and publish the frontend to GitHub Pages.
+
+After deployment, your frontend will be available on GitHub Pages and the frontend will call the backend at `https://<FLY_APP_NAME>.fly.dev`.
