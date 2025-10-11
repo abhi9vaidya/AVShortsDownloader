@@ -56,8 +56,11 @@ WORKDIR /usr/src/app
 COPY --from=builder --chown=node:node /usr/src/app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /usr/src/app ./
 
-# Ensure app dir and downloads dir are writable by node user (important)
-RUN mkdir -p /usr/src/app/downloads && chown -R node:node /usr/src/app
+# ensure downloads dir exists and is owned by node so runtime can write
+RUN mkdir -p /usr/src/app/downloads \
+ && chown -R node:node /usr/src/app
+# optional: set default env in container (server.js already supports DOWNLOADS_DIR)
+ENV DOWNLOADS_DIR=/usr/src/app/downloads
 
 # Debug prints to verify files are in place
 RUN echo "--- /usr/src/app contents (runtime) ---" && ls -la /usr/src/app || true
