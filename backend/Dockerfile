@@ -21,6 +21,9 @@ RUN npm ci --only=production
 # Copy source
 COPY . .
 
+# Debugging: show the contents of the workdir to verify server.js and other files were copied
+RUN echo "--- /usr/src/app contents (debug) ---" && ls -la /usr/src/app || true
+
 # debug print (temporary)
 RUN echo "Contents of workdir:" && ls -la /usr/src/app || true
 
