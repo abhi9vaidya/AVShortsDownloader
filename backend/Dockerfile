@@ -57,7 +57,6 @@ COPY --from=builder --chown=node:node /usr/src/app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /usr/src/app ./
 
 # Ensure backend dir is present at /usr/src/app/backend even if build context differed
-COPY --from=builder --chown=node:node /usr/src/app/backend ./backend || true
 
 # Debug prints to verify files are in place
 RUN echo "--- /usr/src/app contents (runtime) ---" && ls -la /usr/src/app || true
