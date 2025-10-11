@@ -59,6 +59,9 @@ RUN mkdir -p /usr/src/app/downloads && chown -R node:node /usr/src/app/downloads
 COPY --from=builder --chown=node:node /usr/src/app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /usr/src/app ./
 
+# Ensure app dir and downloads dir are writable by node user
+RUN mkdir -p /usr/src/app/downloads && chown -R node:node /usr/src/app
+
 # NOTE: removed the problematic COPY --from=builder /usr/src/app/backend ./backend || true
 
 # Debug prints to verify files are in place
