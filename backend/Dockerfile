@@ -52,17 +52,12 @@ RUN wget -q -O /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/l
 
 WORKDIR /usr/src/app
 
-# Ensure downloads dir exists and is writable by node user
-RUN mkdir -p /usr/src/app/downloads && chown -R node:node /usr/src/app/downloads
-
 # Copy node_modules and app files from builder stage; set ownership for node user
 COPY --from=builder --chown=node:node /usr/src/app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /usr/src/app ./
 
-# Ensure app dir and downloads dir are writable by node user
+# Ensure app dir and downloads dir are writable by node user (important)
 RUN mkdir -p /usr/src/app/downloads && chown -R node:node /usr/src/app
-
-# NOTE: removed the problematic COPY --from=builder /usr/src/app/backend ./backend || true
 
 # Debug prints to verify files are in place
 RUN echo "--- /usr/src/app contents (runtime) ---" && ls -la /usr/src/app || true
