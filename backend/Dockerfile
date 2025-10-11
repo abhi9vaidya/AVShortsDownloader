@@ -21,6 +21,9 @@ RUN npm ci --only=production
 # Copy source
 COPY . .
 
+# debug print (temporary)
+RUN echo "Contents of workdir:" && ls -la /usr/src/app || true
+
 ENV PORT=8080
 EXPOSE 8080
 
