@@ -27,6 +27,9 @@ RUN if [ -f package-lock.json ]; then \
 # Copy the rest of the backend source into builder
 COPY . ./
 
+# ensure backend dir exists so later COPY --from=builder won't fail
+RUN mkdir -p /usr/src/app/backend
+
 # Prune dev deps just in case
 RUN npm prune --production || true
 
