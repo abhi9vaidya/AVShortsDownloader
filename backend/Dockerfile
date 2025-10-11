@@ -1,43 +1,56 @@
-# backend/Dockerfile (multi-stage)
-FROM node:18-alpine AS builder
+# Dockerfile - builds frontend (dist/) then runs server
+FROM node:18-alpine AS build
+
+# Install tools needed for some node-gyp dependencies and yt-dlp build steps
+RUN apk add --no-cache python3 make g++ git wget ca-certificates
+
 WORKDIR /usr/src/app
 
-# Install build dependencies (if you need to build frontend inside Docker, you'd use this stage)
-RUN apk add --no-cache build-base python3 git wget ca-certificates
+# Copy package files and install
+COPY package.json package-lock.json* ./
+RUN npm ci --production=false --ignore-scripts
 
-# Copy package & install production deps
-COPY package.json package-lock.json ./
-RUN npm ci --only=production --ignore-scripts
-
-# Copy the rest of the repo (so frontend build or prebuilt dist is available)
+# Copy source
 COPY . .
 
-# ---------- Runtime image ----------
+# Run frontend build - IMPORTANT:
+# Ensure your package.json has a "build" script that builds into ./dist
+# e.g. "build": "vite build" or "react-scripts build"
+RUN if [ -f package.json ]; then \
+      if npm run | grep -q build; then \
+        echo "Running npm run build" && npm run build || echo "npm run build failed (continue)"; \
+      else \
+        echo "No build script - skipping frontend build"; \
+      fi \
+    fi
+
+# ---- runtime image ----
 FROM node:18-alpine AS runtime
+
+# Install runtime deps (ffmpeg for merging, wget to fetch yt-dlp)
+RUN apk add --no-cache ffmpeg wget ca-certificates
+
 WORKDIR /usr/src/app
 
-# FFmpeg + download yt-dlp binary
-RUN apk add --no-cache ffmpeg wget ca-certificates
-RUN wget -q -O /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp && chmod a+rx /usr/local/bin/yt-dlp
+# Copy node modules from build stage (if any)
+COPY --from=build /usr/src/app/node_modules ./node_modules
+# Copy app code and built dist (if built)
+COPY --from=build /usr/src/app ./
 
-# Copy node_modules & app files from builder
-COPY --from=builder /usr/src/app/node_modules ./node_modules
-COPY --from=builder /usr/src/app/server.js ./server.js
-COPY --from=builder /usr/src/app/package*.json ./
+# Download yt-dlp binary for streaming fallback
+RUN wget -q -O /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp || true
 
-# Copy the frontend build into public/
-# Adjust this path if your frontend's output is in a different directory.
-# If you committed frontend/dist into the repo, the builder stage already has it.
-RUN mkdir -p public
-COPY --from=builder /usr/src/app/frontend/dist/ ./public/ || true
-# If you committed the built index directly to repo's public, also copy that:
-COPY --from=builder /usr/src/app/public/ ./public/ || true
+# Create downloads directory and chown to node user (best-effort)
+RUN mkdir -p /usr/src/app/downloads \
+    && chown -R node:node /usr/src/app || true
 
-# Ensure downloads dir exists and is writable
-RUN mkdir -p /usr/src/app/downloads && chown -R node:node /usr/src/app
-
+# Use non-root user
 USER node
 
-EXPOSE 10000
+# Expose port (Render uses $PORT environment variable)
 ENV PORT=10000
+EXPOSE 10000
+
+# Default command
 CMD ["node", "server.js"]
