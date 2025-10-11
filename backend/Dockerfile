@@ -11,19 +11,18 @@ RUN apk add --no-cache \
 
 WORKDIR /usr/src/app
 
-# Copy package metadata (expect build context = backend/ or repo root -> backend/)
+# Copy package metadata (intended to be built with backend as context)
 COPY package.json package-lock.json* ./
 
 # Debug: list files before install
 RUN echo ">>> Files before npm install (builder):" && ls -la /usr/src/app || true
 
-# Install production deps but ignore lifecycle scripts (skip postinstall)
+# Install production deps but ignore lifecycle scripts (avoids postinstall download failures)
 RUN if [ -f package-lock.json ]; then \
       npm ci --only=production --ignore-scripts || (echo ">>> npm ci failed - dumping npm logs:" && cat /root/.npm/_logs/* || true; exit 1); \
     else \
       npm install --only=production --ignore-scripts || (echo ">>> npm install failed - dumping npm logs:" && cat /root/.npm/_logs/* || true; exit 1); \
     fi
-
 
 # Copy the rest of the backend source into builder
 COPY . ./
@@ -39,24 +38,23 @@ RUN echo "Recursive listing (builder):" && ls -R /usr/src/app || true
 FROM node:18-alpine AS runtime
 
 # Install runtime deps: ffmpeg, wget and ca-certificates
-# Note: Alpine package names; ffmpeg is available in community repos for Alpine
 RUN apk add --no-cache \
     ffmpeg \
     wget \
     ca-certificates
 
-# Install yt-dlp binary (same approach)
+# Install yt-dlp binary (we rely on this rather than package postinstall)
 RUN wget -q -O /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
  && chmod a+rx /usr/local/bin/yt-dlp
 
 WORKDIR /usr/src/app
 
 # Copy node_modules and app files from builder stage; set ownership for node user
-# Official Node Alpine images have a 'node' user; --chown works here.
 COPY --from=builder --chown=node:node /usr/src/app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /usr/src/app ./
 
-# Ensure backend dir is present at /usr/src/app/backend even if build context differed
+# NOTE: removed the problematic COPY --from=builder /usr/src/app/backend ./backend || true
+# The line above caused the build to fail when /usr/src/app/backend didn't exist in the builder.
 
 # Debug prints to verify files are in place
 RUN echo "--- /usr/src/app contents (runtime) ---" && ls -la /usr/src/app || true
@@ -70,5 +68,5 @@ EXPOSE 8080
 # Run as non-root user
 USER node
 
-# Default command: prefer server.js at root; if build context put files under backend/, start backend/server.js
-CMD ["sh", "-c", "if [ -f /usr/src/app/server.js ]; then node /usr/src/app/server.js; else node /usr/src/app/backend/server.js; fi"]
+# Start command: prefer server.js at root; if not, fallback to backend/server.js
+CMD ["sh", "-c", "if [ -f /usr/src/app/server.js ]; then node /usr/src/app/server.js; elif [ -f /usr/src/app/backend/server.js ]; then node /usr/src/app/backend/server.js; else echo \"ERROR: server.js not found\"; ls -R /usr/src/app; exit 1; fi"]
