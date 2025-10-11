@@ -54,7 +54,6 @@ COPY --from=builder --chown=node:node /usr/src/app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /usr/src/app ./
 
 # NOTE: removed the problematic COPY --from=builder /usr/src/app/backend ./backend || true
-# The line above caused the build to fail when /usr/src/app/backend didn't exist in the builder.
 
 # Debug prints to verify files are in place
 RUN echo "--- /usr/src/app contents (runtime) ---" && ls -la /usr/src/app || true
