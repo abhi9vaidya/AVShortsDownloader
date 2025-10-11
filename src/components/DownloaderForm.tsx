@@ -39,6 +39,7 @@ const DownloaderForm = () => {
   const [downloading, setDownloading] = useState(false);
   const [result, setResult] = useState<VideoResult | null>(null);
   const [selectedItag, setSelectedItag] = useState<string | number | null>("highest");
+  const [audioOnly, setAudioOnly] = useState(false);
 
   const validateUrl = (url: string) => {
     const regex = /^(https?:\/\/)?(www\.)?(youtube\.com\/shorts\/|youtu\.be\/)[a-zA-Z0-9_-]+/;
@@ -128,18 +129,31 @@ const DownloaderForm = () => {
       // otherwise send 'highest'
       const qualityParam = selectedItag ?? "highest";
 
-      const res = await fetch(`${BACKEND}/api/download`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, quality: qualityParam }),
-      });
+      let res: Response;
+      if (audioOnly) {
+        // Use audio-only endpoint. If user selected a format itag, include it as quality.
+        const body: any = { url };
+        if (qualityParam && String(qualityParam) !== "highest") body.quality = qualityParam;
+
+        res = await fetch(`${BACKEND}/api/download-audio`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } else {
+        res = await fetch(`${BACKEND}/api/download`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, quality: qualityParam }),
+        });
+      }
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || body.message || res.statusText);
       }
 
-      const disposition = res.headers.get("Content-Disposition") || "";
+  const disposition = res.headers.get("Content-Disposition") || "";
       // try to extract filename from disposition
       let filename = "video.mp4";
       const match = /filename\*?=.*?''?([^;"]+)/i.exec(disposition);
@@ -147,7 +161,8 @@ const DownloaderForm = () => {
         filename = decodeURIComponent(match[1]);
       } else {
         // fallback to title if available
-        filename = (result?.title ?? "video").replace(/[\/\\?%*:|"<>]/g, "") + ".mp4";
+        const ext = audioOnly ? ".mp3" : ".mp4";
+        filename = (result?.title ?? (audioOnly ? "audio" : "video")).replace(/[\/\\?%*:|"<>]/g, "") + ext;
       }
 
       const blob = await res.blob();
@@ -225,7 +240,13 @@ const DownloaderForm = () => {
               </div>
 
               <div className="space-y-3">
-                <label className="text-sm font-medium">Select Quality:</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">Select Quality:</label>
+                  <label className="inline-flex items-center text-sm gap-2">
+                    <input type="checkbox" checked={audioOnly} onChange={(e) => setAudioOnly(e.target.checked)} />
+                    <span className="text-muted-foreground">Audio only</span>
+                  </label>
+                </div>
 
                 <Select
                   value={String(selectedItag ?? "")}
@@ -237,21 +258,54 @@ const DownloaderForm = () => {
                     <SelectValue>
                       {(() => {
                         if (!result.formats || result.formats.length === 0) return "No formats";
-                        const sel = result.formats.find((f) => String(f.itag) === String(selectedItag));
+                        // Special labels for highest/lowest
+                        if (String(selectedItag) === "highest") return "Highest quality";
+                        if (String(selectedItag) === "lowest") return "Lowest quality";
+
+                        // when audioOnly is selected, prefer audio-capable formats
+                        const available = audioOnly ? result.formats.filter(f => f.hasAudio !== false) : result.formats;
+                        const sel = available.find((f) => String(f.itag) === String(selectedItag));
                         return sel ? `${sel.quality ?? sel.itag} ${sel.container ? `(${sel.container})` : ""}` : "Select format";
                       })()}
                     </SelectValue>
                   </SelectTrigger>
 
                   <SelectContent>
-                    {/* Offer a Highest/Lowest convenience option */}
+                    {/* Offer Highest/Lowest convenience option */}
                     <SelectItem value={"highest"}>Highest quality</SelectItem>
                     <SelectItem value={"lowest"}>Lowest quality</SelectItem>
-                    {result.formats.map((format) => (
-                      <SelectItem key={String(format.itag)} value={String(format.itag)}>
-                        {format.quality ?? String(format.itag)} {format.container ? `- ${format.container}` : ""} {format.hasAudio === false ? "(video only)" : ""}
-                      </SelectItem>
-                    ))}
+
+                    {/* Simplified resolution list */}
+                    {(() => {
+                      const resolutions = [360, 480, 720, 1080, 1440, 2160];
+                      // Build a list of candidate formats to choose from for each resolution
+                      const available = audioOnly ? result.formats.filter(f => f.hasAudio !== false) : result.formats;
+                      const items: any[] = [];
+
+                      resolutions.forEach((r) => {
+                        const qRegex = new RegExp(`\\b${r}p\\b`, "i");
+                        // prefer combined formats (hasAudio && hasVideo) for this resolution
+                        const combined = available.find((f) => f.hasVideo && f.hasAudio && qRegex.test(String(f.quality || "")));
+                        // then any audio-capable format (audio only or combined)
+                        const withAudio = available.find((f) => f.hasAudio && qRegex.test(String(f.quality || "")));
+                        // then video-only formats
+                        const videoOnly = available.find((f) => f.hasVideo && !f.hasAudio && qRegex.test(String(f.quality || "")));
+
+                        const pick = combined || withAudio || videoOnly;
+                        if (pick) {
+                          const hasA = !!pick.hasAudio;
+                          const hasV = !!pick.hasVideo;
+                          const label = `${r}p${hasA && hasV ? "" : hasA ? " (audio only)" : " (video only)"}`;
+                          items.push({ itag: pick.itag, label });
+                        }
+                      });
+
+                      return items.map((it) => (
+                        <SelectItem key={String(it.itag)} value={String(it.itag)}>
+                          {it.label}
+                        </SelectItem>
+                      ));
+                    })()}
                   </SelectContent>
                 </Select>
 

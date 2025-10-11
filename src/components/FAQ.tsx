@@ -34,7 +34,7 @@ const faqs = [
 
 const FAQ = () => {
   return (
-    <section className="py-20 px-4 bg-background">
+    <section id="faq" className="py-20 px-4 bg-background">
       <div className="container mx-auto max-w-3xl">
         <h2 className="text-4xl font-bold text-center mb-12">Frequently Asked Questions</h2>
         <Accordion type="single" collapsible className="space-y-4">

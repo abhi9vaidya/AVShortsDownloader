@@ -1,5 +1,6 @@
 import { Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Link } from "react-router-dom";
 
 const Header = () => {
   return (
@@ -13,18 +14,20 @@ const Header = () => {
         </div>
         
         <nav className="hidden md:flex items-center gap-6">
-          <a href="#home" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+          <Link to="/" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
             Home
-          </a>
-          <a href="#about" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+          </Link>
+          <Link to="/about" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
             About
-          </a>
-          <a href="#contact" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+          </Link>
+          <Link to="/contact" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
             Contact
-          </a>
-          <Button variant="default" size="sm" className="bg-gradient-primary hover:opacity-90 transition-opacity">
-            Get Started
-          </Button>
+          </Link>
+          <Link to="/" className="inline-block">
+            <Button variant="default" size="sm" className="bg-gradient-primary hover:opacity-90 transition-opacity">
+              Get Started
+            </Button>
+          </Link>
         </nav>
       </div>
     </header>

@@ -1,4 +1,5 @@
 import { Play, Mail, Twitter, Facebook, Instagram } from "lucide-react";
+import { Link } from "react-router-dom";
 
 const Footer = () => {
   return (
@@ -20,35 +21,32 @@ const Footer = () => {
           <div>
             <h3 className="font-semibold mb-4">Quick Links</h3>
             <ul className="space-y-2 text-sm text-background/70">
-              <li><a href="#home" className="hover:text-background transition-colors">Home</a></li>
-              <li><a href="#about" className="hover:text-background transition-colors">About</a></li>
-              <li><a href="#contact" className="hover:text-background transition-colors">Contact</a></li>
-              <li><a href="#faq" className="hover:text-background transition-colors">FAQ</a></li>
+              <li><Link to="/" className="hover:text-background transition-colors">Home</Link></li>
+              <li><Link to="/about" className="hover:text-background transition-colors">About</Link></li>
+              <li><Link to="/contact" className="hover:text-background transition-colors">Contact</Link></li>
+              <li><a href="/#faq" className="hover:text-background transition-colors">FAQ</a></li>
             </ul>
           </div>
 
           <div>
             <h3 className="font-semibold mb-4">Legal</h3>
             <ul className="space-y-2 text-sm text-background/70">
-              <li><a href="#" className="hover:text-background transition-colors">Privacy Policy</a></li>
-              <li><a href="#" className="hover:text-background transition-colors">Terms of Service</a></li>
-              <li><a href="#" className="hover:text-background transition-colors">DMCA</a></li>
+              <li><Link to="/privacy" className="hover:text-background transition-colors">Privacy Policy</Link></li>
+              <li><Link to="/terms" className="hover:text-background transition-colors">Terms of Service</Link></li>
+              <li><Link to="/dmca" className="hover:text-background transition-colors">DMCA</Link></li>
             </ul>
           </div>
 
           <div>
             <h3 className="font-semibold mb-4">Connect</h3>
             <div className="flex gap-4">
-              <a href="#" className="hover:text-primary transition-colors">
+              <a href="https://x.com/Abhi9_15" target="_blank" rel="noreferrer" className="hover:text-primary transition-colors">
                 <Twitter className="w-5 h-5" />
               </a>
-              <a href="#" className="hover:text-primary transition-colors">
-                <Facebook className="w-5 h-5" />
-              </a>
-              <a href="#" className="hover:text-primary transition-colors">
+              <a href="https://www.instagram.com/abhi9.1535/" target="_blank" rel="noreferrer" className="hover:text-primary transition-colors">
                 <Instagram className="w-5 h-5" />
               </a>
-              <a href="#" className="hover:text-primary transition-colors">
+              <a href="https://mail.google.com/mail/?view=cm&fs=1&to=abhinavaidya1535@gmail.com" target="_blank" rel="noreferrer" className="hover:text-primary transition-colors">
                 <Mail className="w-5 h-5" />
               </a>
             </div>

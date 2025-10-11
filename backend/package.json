@@ -24,7 +24,8 @@
     "play-dl": "^1.9.7",
     "sanitize-filename": "^1.6.3",
     "youtube-dl-exec": "^3.0.25",
-    "ytdl-core": "^4.11.5"
+    "ytdl-core": "^4.11.5",
+    "nodemailer": "^6.9.4"
   },
   "devDependencies": {
     "jest": "^29.7.0",

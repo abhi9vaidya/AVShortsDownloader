@@ -3,6 +3,8 @@ const express = require("express");
 const cors = require("cors");
 const play = require("play-dl");
 const youtubedl = require('youtube-dl-exec'); // add near top of server.js
+let ytdl;
+try { ytdl = require('ytdl-core'); } catch (e) { ytdl = null; }
 const path = require("path");
 const fs = require("fs").promises;
 const { createWriteStream } = require("fs");
@@ -16,13 +18,22 @@ const fsSync = require('fs'); // for createReadStream & unlinkSync
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// During development allow all origins so browser requests from Vite don't get blocked by CORS.
+// In production restrict this to your frontend origin(s).
 app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:8080"],
+  origin: true,
   methods: ["GET", "POST", "DELETE"],
   allowedHeaders: ["Content-Type"]
 }));
 app.use(express.json());
 app.use(express.static("public"));
+
+// Load env (optional)
+require('dotenv').config();
+
+// nodemailer for sending contact emails (optional)
+let nodemailer;
+try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
 
 const DOWNLOADS_DIR = path.join(__dirname, "downloads");
 fs.mkdir(DOWNLOADS_DIR, { recursive: true }).catch(console.error);
@@ -45,32 +56,116 @@ function isValidYouTubeUrl(url) {
 
 // Get video info
 app.post("/api/video-info", async (req, res) => {
+  console.log('[api/video-info] incoming request from', req.ip, 'body=', JSON.stringify(req.body).slice(0,200));
   try {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
     if (!isValidYouTubeUrl(url))
       return res.status(400).json({ error: "Invalid YouTube URL" });
+    // Prefer ytdl-core for metadata (more consistent). If ytdl-core not available or fails,
+    // fall back to play.video_info.
+    let title = null, author = null, lengthSeconds = null, viewCount = null, thumbnail = null, description = null, uploadDate = null;
+    let formats = [];
 
-    const info = await play.video_info(url);
-    const video = info.video_details;
-    const thumb = video.thumbnails?.[video.thumbnails.length - 1]?.url;
+    if (ytdl) {
+      try {
+        console.log('[video-info] using ytdl-core to get info');
+        const yi = await ytdl.getInfo(url);
+        title = yi.videoDetails?.title || yi.player_response?.videoDetails?.title || null;
+        author = yi.videoDetails?.author?.name || null;
+        lengthSeconds = String(yi.videoDetails?.lengthSeconds || '');
+        viewCount = String(yi.videoDetails?.viewCount || '');
+        thumbnail = yi.videoDetails?.thumbnail?.thumbnails?.slice(-1)[0]?.url || null;
+        description = yi.videoDetails?.shortDescription || null;
+        uploadDate = yi.videoDetails?.uploadDate || null;
 
-    const formats = (info.formats || []).map((f) => ({
-      quality: f.qualityLabel || f.quality,
-      container: f.container,
-      hasAudio: f.hasAudio,
-      hasVideo: f.hasVideo,
-      itag: f.itag
-    }));
+        formats = (yi.formats || []).map((f) => ({
+          quality: f.qualityLabel || (f.audioBitrate ? `${f.audioBitrate} kbps` : null) || null,
+          container: f.container || (f.mimeType ? String(f.mimeType).split(';')[0].split('/').pop() : null) || null,
+          hasAudio: !!f.audioBitrate || /audio/i.test(String(f.mimeType)),
+          hasVideo: !!f.qualityLabel || !!f.width || /video/i.test(String(f.mimeType)),
+          itag: f.itag || null
+        }));
+
+        console.log('[video-info] ytdl-core formats count=', formats.length);
+      } catch (yerr) {
+        console.warn('[video-info] ytdl-core failed, falling back to play.video_info:', yerr?.message || yerr);
+      }
+    }
+
+    // If ytdl didn't produce formats, try play.video_info
+    if ((!formats || formats.length === 0)) {
+      try {
+        const info = await play.video_info(url);
+        console.log('[video-info] play.video_info fetched; formats count=', (info.formats || []).length);
+        const video = info.video_details || {};
+        title = title || video.title || null;
+        author = author || video.channel?.name || null;
+        lengthSeconds = lengthSeconds || (video.durationInSec ? String(video.durationInSec) : null);
+        viewCount = viewCount || (video.views ? String(video.views) : null);
+        thumbnail = thumbnail || video.thumbnails?.[video.thumbnails.length - 1]?.url || null;
+        description = description || video.description || null;
+        uploadDate = uploadDate || video.uploadDate || null;
+
+        formats = (info.formats || []).map((f) => ({
+          quality: f.qualityLabel || f.quality || null,
+          container: f.container || null,
+          hasAudio: typeof f.hasAudio === 'boolean' ? f.hasAudio : (f.audioBitrate != null),
+          hasVideo: typeof f.hasVideo === 'boolean' ? f.hasVideo : (f.qualityLabel != null || f.fps != null),
+          itag: f.itag || null
+        }));
+      } catch (err2) {
+        console.warn('[video-info] play.video_info also failed:', err2?.message || err2);
+      }
+    }
+
+    // If still no formats, attempt to call yt-dlp -J and parse JSON output (requires yt-dlp in PATH)
+    if ((!formats || formats.length === 0)) {
+      try {
+        console.log('[video-info] attempting yt-dlp -J fallback (needs yt-dlp on PATH)');
+        const spawnOpts = { stdio: ['ignore', 'pipe', 'pipe'] };
+        const child = spawn('yt-dlp', ['-J', url], spawnOpts);
+        let out = '';
+        let errOut = '';
+        child.stdout.on('data', (c) => out += c.toString());
+        child.stderr.on('data', (c) => errOut += c.toString());
+
+        const exitCode = await new Promise((resolve, reject) => {
+          child.on('error', (e) => reject(e));
+          child.on('close', (code) => resolve(code));
+        });
+
+        if (exitCode === 0 && out) {
+          try {
+            const parsed = JSON.parse(out);
+            const yformats = parsed.formats || [];
+            formats = yformats.map((f) => ({
+              quality: f.format_note || f.qualityLabel || (f.abr ? `${f.abr} kbps` : null) || null,
+              container: f.ext || (f.format ? String(f.format).split(' ')[0] : null) || null,
+              hasAudio: !!(f.acodec && f.acodec !== 'none') || !!f.abr,
+              hasVideo: !!(f.vcodec && f.vcodec !== 'none') || !!f.width,
+              itag: f.format_id || f.itag || null
+            }));
+            console.log('[video-info] yt-dlp returned formats count=', formats.length);
+          } catch (parseErr) {
+            console.warn('[video-info] failed to parse yt-dlp JSON:', parseErr?.message || parseErr);
+          }
+        } else {
+          console.warn('[video-info] yt-dlp -J failed:', exitCode, errOut.substring(0, 200));
+        }
+      } catch (ytdlpErr) {
+        console.warn('[video-info] yt-dlp fallback error:', ytdlpErr?.message || ytdlpErr);
+      }
+    }
 
     res.json({
-      title: video.title,
-      author: video.channel?.name,
-      lengthSeconds: video.durationInSec?.toString(),
-      viewCount: video.views?.toString(),
-      thumbnail: thumb,
-      description: video.description,
-      uploadDate: video.uploadDate,
+      title: title || 'Unknown title',
+      author,
+      lengthSeconds,
+      viewCount,
+      thumbnail: thumbnail || null,
+      description,
+      uploadDate,
       formats
     });
   } catch (err) {
@@ -313,18 +408,127 @@ app.post("/api/download-to-server", async (req, res) => {
 // Audio only
 app.post("/api/download-audio", async (req, res) => {
   try {
-    const { url } = req.body;
+    const { url, quality } = req.body || {};
     if (!url) return res.status(400).json({ error: "URL is required" });
 
-    const info = await play.video_info(url);
-    const title = sanitize(info.video_details.title);
-    const filename = `${title}-${Date.now()}.mp3`;
+    console.log('[download-audio] requested', { url, quality });
 
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.setHeader("Content-Type", "audio/mpeg");
+    // Try play-dl first
+    try {
+      // Choose best audio quality or a numeric itag if provided
+  let playQuality = 'highestaudio';
+      if (quality && String(quality).toLowerCase() !== 'highest' && !isNaN(Number(quality))) {
+        playQuality = Number(quality);
+      }
 
-    const stream = await play.stream(url, { quality: "highestaudio" });
-    stream.stream.pipe(res);
+      const info = await play.video_info(url).catch(() => null);
+      const title = info && info.video_details ? sanitize(info.video_details.title) : `audio-${Date.now()}`;
+      const filename = `${title}-${Date.now()}.mp3`;
+
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Type", "audio/mpeg");
+
+      const streamInfo = await play.stream(url, { quality: playQuality }).catch((e) => {
+        console.warn('[download-audio] play.stream failed:', e?.message || e);
+        return null;
+      });
+
+      if (streamInfo && streamInfo.stream) {
+        console.log('[download-audio] piping play-dl stream');
+        streamInfo.stream.on('error', (e) => console.error('[download-audio] play stream error:', e));
+        streamInfo.stream.pipe(res);
+        return;
+      }
+    } catch (playErr) {
+      console.warn('[download-audio] play-dl attempt failed:', playErr?.message || playErr);
+    }
+
+    // Fallback: try streaming with yt-dlp directly to stdout (bestaudio)
+    try {
+      console.log('[download-audio] attempting yt-dlp streaming fallback');
+      const ytdlpCmd = 'yt-dlp';
+      const ytdlpArgs = ['--no-playlist', '-f', 'bestaudio', '-o', '-', url];
+      const child = spawn(ytdlpCmd, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+      child.on('error', (err) => {
+        console.error('[download-audio] yt-dlp spawn error:', err);
+        if (!res.headersSent) {
+          return res.status(500).json({ error: 'yt-dlp spawn failed', message: err.message });
+        }
+      });
+
+      const fallbackFilename = `audio-${Date.now()}.mp3`;
+      if (!res.headersSent) {
+        res.setHeader('Content-Disposition', `attachment; filename="${fallbackFilename}"`);
+        res.setHeader('Content-Type', 'application/octet-stream');
+      }
+
+      // Pipe stdout from yt-dlp into the response
+      child.stdout.pipe(res);
+
+      child.stderr.on('data', (chunk) => console.log('[yt-dlp stderr]', chunk.toString().trim()));
+
+      child.on('close', (code) => {
+        console.log(`[download-audio] yt-dlp exited with code ${code}`);
+      });
+
+      return;
+    } catch (ytdlpErr) {
+      console.warn('[download-audio] yt-dlp streaming fallback failed:', ytdlpErr?.message || ytdlpErr);
+    }
+
+    // Final fallback: download to temp file via yt-dlp then stream the file
+    try {
+      console.log('[download-audio] attempting yt-dlp file-download fallback');
+      const tmpDir = os.tmpdir();
+      const tmpFilename = `audio-${Date.now()}.%(ext)s`;
+      const tmpFilepathPattern = join(tmpDir, tmpFilename);
+
+      const args = ['--no-playlist', '-f', 'bestaudio', '-o', tmpFilepathPattern, url];
+      const child = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      child.stderr.on('data', (c) => console.log('[yt-dlp stderr]', c.toString().trim()));
+
+      const exitCode = await new Promise((resolve, reject) => {
+        child.on('error', (err) => reject(err));
+        child.on('close', (code) => resolve(code));
+      });
+
+      if (exitCode !== 0) throw new Error('yt-dlp failed to download audio');
+
+      // pick the newest matching file in tmp
+      const files = fsSync.readdirSync(tmpDir).filter(f => f.startsWith('audio-'));
+      const candidates = files.map(f => ({ f, t: fsSync.statSync(join(tmpDir, f)).mtimeMs })).sort((a,b) => b.t - a.t);
+      if (!candidates || candidates.length === 0) throw new Error('downloaded audio file not found');
+      const downloadedFile = join(tmpDir, candidates[0].f);
+
+      const stat = fsSync.statSync(downloadedFile);
+      if (!res.headersSent) {
+        res.setHeader('Content-Length', stat.size);
+        res.setHeader('Content-Disposition', `attachment; filename="${path.basename(downloadedFile)}"`);
+        res.setHeader('Content-Type', 'application/octet-stream');
+      }
+
+      const readStream = fsSync.createReadStream(downloadedFile);
+      readStream.pipe(res);
+      readStream.on('close', () => {
+        setTimeout(() => {
+          fsSync.unlink(downloadedFile, (e) => {
+            if (e) console.warn('Could not delete tmp file (will auto-clean later):', e.code);
+            else console.log('[download-audio] deleted tmp file', downloadedFile);
+          });
+        }, 2000);
+      });
+
+      readStream.on('error', (e) => {
+        console.error('[download-audio] readStream error', e);
+        try { fsSync.unlinkSync(downloadedFile); } catch (e) {}
+      });
+
+      return;
+    } catch (finalErr) {
+      console.error('[download-audio] all fallbacks failed:', finalErr);
+      if (!res.headersSent) return res.status(500).json({ error: 'Failed to download audio', message: finalErr.message });
+    }
   } catch (err) {
     console.error("Error downloading audio:", err);
     if (!res.headersSent)
@@ -367,6 +571,62 @@ app.delete("/api/downloads/:filename", async (req, res) => {
   } catch (err) {
     console.error("Error deleting file:", err);
     res.status(500).json({ error: "Failed to delete file" });
+  }
+});
+
+// Contact form endpoint: send email if SMTP configured, otherwise save to downloads/contacts
+app.post('/api/contact', async (req, res) => {
+  try {
+    const { name, email, message } = req.body || {};
+    if (!message) return res.status(400).json({ error: 'Message is required' });
+
+    const contact = {
+      name: name || 'Anonymous',
+      email: email || null,
+      message,
+      receivedAt: new Date().toISOString()
+    };
+
+    const smtpHost = process.env.SMTP_HOST;
+
+    // If nodemailer and SMTP config present, attempt to send mail
+    if (nodemailer && smtpHost && process.env.CONTACT_TO_EMAIL) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST,
+          port: Number(process.env.SMTP_PORT) || 587,
+          secure: process.env.SMTP_SECURE === 'true',
+          auth: process.env.SMTP_USER ? {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS
+          } : undefined
+        });
+
+        const mail = {
+          from: process.env.SMTP_FROM || (contact.email || 'no-reply@example.com'),
+          to: process.env.CONTACT_TO_EMAIL,
+          subject: `New contact form message from ${contact.name}`,
+          text: `Name: ${contact.name}\nEmail: ${contact.email || 'N/A'}\n\nMessage:\n${contact.message}`
+        };
+
+        await transporter.sendMail(mail);
+        return res.json({ success: true, sent: true });
+      } catch (mailErr) {
+        console.warn('Failed to send contact email, falling back to file save:', mailErr.message || mailErr);
+        // fall through to file save
+      }
+    }
+
+    // Fallback: save to downloads/contacts
+    const contactsDir = path.join(DOWNLOADS_DIR, 'contacts');
+    await fs.mkdir(contactsDir, { recursive: true });
+    const filename = `contact-${Date.now()}.json`;
+    await fs.writeFile(path.join(contactsDir, filename), JSON.stringify(contact, null, 2), 'utf8');
+
+    return res.json({ success: true, saved: true, path: `/downloads/contacts/${filename}` });
+  } catch (err) {
+    console.error('/api/contact error', err);
+    res.status(500).json({ error: 'Failed to process contact message', message: err.message });
   }
 });
 

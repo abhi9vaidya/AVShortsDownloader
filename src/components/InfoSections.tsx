@@ -23,9 +23,9 @@ const InfoSections = () => {
               sharing with friends, or creating compilations.
             </p>
           </div>
-          <img 
-            src="https://source.unsplash.com/random/600x400/?youtube,mobile"
-            alt="YouTube Shorts"
+          <img
+            src="https://images.unsplash.com/photo-1515378791036-0648a3ef77b2?auto=format&fit=crop&w=800&q=80"
+            alt="YouTube Shorts on mobile device"
             className="rounded-xl shadow-xl animate-scale-in"
           />
         </div>

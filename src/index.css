@@ -91,3 +91,10 @@ All colors MUST be HSL.
     scroll-behavior: smooth;
   }
 }
+
+/* Common page main wrapper used by top-level pages */
+@layer utilities {
+  .page-main {
+    @apply container mx-auto px-4 py-16;
+  }
+}
