@@ -27,7 +27,7 @@ RUN if [ -f package-lock.json ]; then \
 # Copy the rest of the backend source into builder
 COPY . ./
 
-# ensure backend dir exists so later COPY --from=builder won't fail
+# ensure backend dir exists so later COPY --from=builder won't fail (keeps compatibility)
 RUN mkdir -p /usr/src/app/backend
 
 # Prune dev deps just in case
@@ -56,10 +56,10 @@ WORKDIR /usr/src/app
 COPY --from=builder --chown=node:node /usr/src/app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /usr/src/app ./
 
-# ensure downloads dir exists and is owned by node so runtime can write
+# Ensure downloads dir exists and make /usr/src/app owned by node user so runtime can write.
+# Do this BEFORE switching to USER node.
 RUN mkdir -p /usr/src/app/downloads \
- && chown -R node:node /usr/src/app
-# optional: set default env in container (server.js already supports DOWNLOADS_DIR)
+  && chown -R node:node /usr/src/app || true
 ENV DOWNLOADS_DIR=/usr/src/app/downloads
 
 # Debug prints to verify files are in place

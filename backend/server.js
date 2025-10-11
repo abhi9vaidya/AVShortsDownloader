@@ -2,7 +2,7 @@
 const express = require("express");
 const cors = require("cors");
 const play = require("play-dl");
-const youtubedl = require('youtube-dl-exec'); // add near top of server.js
+const youtubedl = require('youtube-dl-exec'); // optional (might not be used directly)
 let ytdl;
 try { ytdl = require('ytdl-core'); } catch (e) { ytdl = null; }
 const path = require("path");
@@ -34,37 +34,46 @@ require('dotenv').config();
 let nodemailer;
 try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
 
-// -------------------- DOWNLOADS DIR SETUP --------------------
-// Use env override if provided, otherwise try ./downloads
+// Default downloads dir; can be overridden with env DOWNLOADS_DIR
 let DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(__dirname, "downloads");
 
-// Attempt to create DOWNLOADS_DIR; if that fails, fall back to a tmp directory
-const initDownloadsDir = (async () => {
+// Attempt to create the downloads directory. If that fails due to permissions (EACCES),
+// fall back to a writable temp directory and log a warning.
+async function ensureDownloadsDir() {
   try {
     await fs.mkdir(DOWNLOADS_DIR, { recursive: true });
-    // success
-    console.log('Downloads directory ready at', DOWNLOADS_DIR);
+    return;
   } catch (err) {
-    console.warn('Could not create downloads dir at', DOWNLOADS_DIR, err && err.code);
-    // fallback to tmp dir
-    const fallback = path.join(os.tmpdir(), 'avshorts-downloads');
-    try {
-      await fs.mkdir(fallback, { recursive: true });
-      DOWNLOADS_DIR = fallback;
-      process.env.DOWNLOADS_DIR = DOWNLOADS_DIR;
-      console.log('Using fallback downloads dir:', DOWNLOADS_DIR);
-    } catch (err2) {
-      console.error('Failed to create fallback tmp downloads dir:', err2 && err2.message);
-      // leave DOWNLOADS_DIR as-is; endpoints that write will error later
+    // If permission denied, pick a fallback in the system temp dir or home
+    if (err && (err.code === 'EACCES' || err.code === 'EPERM')) {
+      const fallback = path.join(os.tmpdir(), "avshorts-downloads");
+      try {
+        await fs.mkdir(fallback, { recursive: true });
+        DOWNLOADS_DIR = fallback;
+        console.warn(`[WARN] Could not create ${path.join(__dirname,"downloads")}, using fallback ${DOWNLOADS_DIR}`);
+        return;
+      } catch (err2) {
+        console.error("[FATAL] Could not create fallback downloads dir:", err2);
+      }
     }
+    // For any other errors, log and continue — routes will handle missing dir errors
+    console.error("Error creating downloads dir:", err);
   }
-})();
+}
+
+// run at startup (fire-and-forget but log errors)
+ensureDownloadsDir().catch(console.error);
 
 // ------------------ ROUTES ------------------
 
 // Health Check
 app.get("/health", (req, res) => {
   res.json({ status: "ok", message: "Swift Shorts Downloader API is running" });
+});
+
+// Helpful root route so browser GET / doesn't return "Cannot GET /"
+app.get("/", (req, res) => {
+  res.send(`Swift Shorts Downloader API — health: GET /health — downloads dir: ${DOWNLOADS_DIR}`);
 });
 
 // Validate YouTube URL
@@ -199,8 +208,6 @@ app.post("/api/video-info", async (req, res) => {
   }
 });
 
-// Robust /api/download with play-dl then yt-dlp fallback
-
 // Robust /api/download handler: play-dl first, yt-dlp (spawn) fallback
 app.post("/api/download", async (req, res) => {
   try {
@@ -256,83 +263,80 @@ app.post("/api/download", async (req, res) => {
     // -------------------------
 
     // Fallback: download merged file locally then stream it
-try {
-  // tmp file path
-  const tmpDir = os.tmpdir();
-  const tmpFilename = `video-${Date.now()}.%(ext)s`; // yt-dlp will replace ext
-  const tmpFilepathPattern = join(tmpDir, tmpFilename);
+    try {
+      // tmp file path
+      const tmpDir = os.tmpdir();
+      const tmpFilename = `video-${Date.now()}.%(ext)s`; // yt-dlp will replace ext
+      const tmpFilepathPattern = join(tmpDir, tmpFilename);
 
-  // Use yt-dlp to download & merge into a file (requires ffmpeg for merging)
-  // -f bestvideo+bestaudio/best  -> prefer merged
-  // -o <pattern>                 -> output file pattern
-  const ytdlpArgsFile = [
-    '--no-playlist',
-    '-f', 'bestvideo+bestaudio/best',
-    '-o', tmpFilepathPattern,
-    url
-  ];
+      // Use yt-dlp to download & merge into a file (requires ffmpeg for merging)
+      const ytdlpArgsFile = [
+        '--no-playlist',
+        '-f', 'bestvideo+bestaudio/best',
+        '-o', tmpFilepathPattern,
+        url
+      ];
 
-  console.log('[download] yt-dlp file-download args:', ytdlpArgsFile.join(' '));
-  const child = spawn('yt-dlp', ytdlpArgsFile, { stdio: ['ignore', 'pipe', 'pipe'] });
+      console.log('[download] yt-dlp file-download args:', ytdlpArgsFile.join(' '));
+      const child = spawn('yt-dlp', ytdlpArgsFile, { stdio: ['ignore', 'pipe', 'pipe'] });
 
-  // capture stderr for logs
-  child.stderr.on('data', (c) => console.log('[yt-dlp stderr]', c.toString().trim()));
+      // capture stderr for logs
+      child.stderr.on('data', (c) => console.log('[yt-dlp stderr]', c.toString().trim()));
 
-  const exitCode = await new Promise((resolve, reject) => {
-    child.on('error', (err) => reject(err));
-    child.on('close', (code) => resolve(code));
-  });
+      const exitCode = await new Promise((resolve, reject) => {
+        child.on('error', (err) => reject(err));
+        child.on('close', (code) => resolve(code));
+      });
 
-  console.log('[download] yt-dlp finished with code', exitCode);
+      console.log('[download] yt-dlp finished with code', exitCode);
 
-  if (exitCode !== 0) {
-    throw new Error('yt-dlp failed to download/merge video (check server logs for details)');
-  }
+      if (exitCode !== 0) {
+        throw new Error('yt-dlp failed to download/merge video (check server logs for details)');
+      }
 
-  // find the downloaded file (yt-dlp replaces %(ext)s) — pick newest matching file
-  const files = fsSync.readdirSync(tmpDir)
-    .filter(f => f.startsWith('video-') && f.includes(String(Date.now()).slice(0,4)) === false ? true : true ); // simpler: find by prefix
-  // Better: get the file that was created most recently
-  const candidates = files.map(f => ({ f, t: fsSync.statSync(join(tmpDir, f)).mtimeMs }))
-                          .sort((a,b) => b.t - a.t);
-  if (!candidates || candidates.length === 0) {
-    throw new Error('Downloaded file not found in temp dir');
-  }
-  const downloadedFile = join(tmpDir, candidates[0].f);
+      // find the downloaded file (yt-dlp replaces %(ext)s) — pick newest matching file
+      const files = fsSync.readdirSync(tmpDir).filter(f => f.startsWith('video-'));
+      const candidates = files.map(f => ({ f, t: fsSync.statSync(join(tmpDir, f)).mtimeMs }))
+                              .sort((a,b) => b.t - a.t);
+      if (!candidates || candidates.length === 0) {
+        throw new Error('Downloaded file not found in temp dir');
+      }
+      const downloadedFile = join(tmpDir, candidates[0].f);
 
-  // Stream the merged file to the client
-  const stat = fsSync.statSync(downloadedFile);
-  res.setHeader('Content-Length', stat.size);
-  res.setHeader('Content-Disposition', `attachment; filename="${path.basename(downloadedFile)}"`);
-  res.setHeader('Content-Type', 'video/mp4');
+      // Stream the merged file to the client
+      const stat = fsSync.statSync(downloadedFile);
+      res.setHeader('Content-Length', stat.size);
+      res.setHeader('Content-Disposition', `attachment; filename="${path.basename(downloadedFile)}"`);
+      res.setHeader('Content-Type', 'video/mp4');
 
-  const readStream = fsSync.createReadStream(downloadedFile);
-  readStream.pipe(res);
-  readStream.on('close', () => {
-  setTimeout(() => {
-    fsSync.unlink(downloadedFile, (e) => {
-      if (e) console.warn('Could not delete tmp file (will auto-clean later):', e.code);
-      else console.log('[download] deleted tmp file', downloadedFile);
-    });
-  }, 2000);
-  console.log('[download] served file', downloadedFile);
-});
+      const readStream = fsSync.createReadStream(downloadedFile);
+      readStream.pipe(res);
+      readStream.on('close', () => {
+        setTimeout(() => {
+          fsSync.unlink(downloadedFile, (e) => {
+            if (e) console.warn('Could not delete tmp file (will auto-clean later):', e.code);
+            else console.log('[download] deleted tmp file', downloadedFile);
+          });
+        }, 2000);
+        console.log('[download] served file', downloadedFile);
+      });
 
-  readStream.on('error', (e) => {
-    console.error('[download] readStream error', e);
-    try { fsSync.unlinkSync(downloadedFile); } catch (e) {}
-  });
+      readStream.on('error', (e) => {
+        console.error('[download] readStream error', e);
+        try { fsSync.unlinkSync(downloadedFile); } catch (e) {}
+      });
 
-  return;
-} catch (fileFallbackErr) {
-  console.error('[download] yt-dlp file fallback error:', fileFallbackErr);
-  if (!res.headersSent) {
-    return res.status(500).json({ error: 'yt-dlp fallback failed', message: fileFallbackErr.message });
-  }
-}
+      return;
+    } catch (fileFallbackErr) {
+      console.error('[download] yt-dlp file fallback error:', fileFallbackErr);
+      if (!res.headersSent) {
+        return res.status(500).json({ error: 'yt-dlp fallback failed', message: fileFallbackErr.message });
+      }
+    }
+
     // yt-dlp must be installed and in PATH for this to work.
     // Recommended format string: bestvideo+bestaudio/best
-    const ytdlpCmd = "yt-dlp"; // on Windows this might be yt-dlp.exe
+    const ytdlpCmd = "yt-dlp";
     const ytdlpArgs = [
       '--no-playlist',
       '-f', 'bestvideo+bestaudio/best',
@@ -377,7 +381,6 @@ try {
 
     child.on('close', (code, signal) => {
       console.log(`[download] yt-dlp exited with code ${code} signal ${signal}`);
-      // If it ended with non-zero code and nothing was written, client may receive truncated file
     });
 
     return;
@@ -582,7 +585,11 @@ app.get("/api/downloads", async (req, res) => {
   }
 });
 
-app.use("/downloads", express.static(DOWNLOADS_DIR));
+// Serve downloads directory dynamically (use current DOWNLOADS_DIR value)
+app.use("/downloads", (req, res, next) => {
+  // express.static returns a middleware function; call it with current DOWNLOADS_DIR
+  return express.static(DOWNLOADS_DIR)(req, res, next);
+});
 
 app.delete("/api/downloads/:filename", async (req, res) => {
   try {
@@ -657,17 +664,9 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Something went wrong!" });
 });
 
-// Start server only after downloads dir init completes
-(async () => {
-  try {
-    await initDownloadsDir;
-  } catch (e) {
-    // already logged inside initDownloadsDir; continue to start server anyway
-  }
-
-  const server = app.listen(PORT, "0.0.0.0", () => {
-    const addr = server.address();
-    console.log(`🚀 Swift Shorts Downloader Backend running at http://${addr.address}:${addr.port}`);
-    console.log(`📁 Downloads directory: ${DOWNLOADS_DIR}`);
-  });
-})();
+// Start server
+const server = app.listen(PORT, "0.0.0.0", () => {
+  const addr = server.address();
+  console.log(`🚀 Swift Shorts Downloader Backend running at http://${addr.address}:${addr.port}`);
+  console.log(`📁 Downloads directory: ${DOWNLOADS_DIR}`);
+});
