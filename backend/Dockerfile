@@ -8,14 +8,17 @@ RUN apt-get update \
 
 WORKDIR /usr/src/app
 
-# Copy only package metadata first (cache friendly)
+# copy package files first
 COPY backend/package.json backend/package-lock.json* ./
 
-# Use npm ci when lockfile exists, else fall back to npm install
+# show files so we can confirm lockfile exists in the image
+RUN echo ">>> workdir files before npm install:" && ls -la /usr/src/app || true
+
+# run install, and if npm fails print debug logs before exiting (temporary debug helper)
 RUN if [ -f package-lock.json ]; then \
-      npm ci --only=production; \
+      npm ci --only=production || (echo ">>> npm ci failed - printing npm debug logs:" && cat /root/.npm/_logs/* || true; exit 1); \
     else \
-      npm install --only=production; \
+      npm install --only=production || (echo ">>> npm install failed - printing npm debug logs:" && cat /root/.npm/_logs/* || true; exit 1); \
     fi
 
 # Copy full backend source into builder
