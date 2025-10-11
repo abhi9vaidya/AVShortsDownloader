@@ -15,11 +15,13 @@ RUN wget -q -O /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/l
 WORKDIR /usr/src/app
 
 # Install dependencies
-COPY package.json package-lock.json* ./
+# Be explicit and copy backend package files from repo root so builds work whether
+# Render uses the backend folder as the build context or the repo root.
+COPY backend/package.json backend/package-lock.json* ./
 RUN npm ci --only=production
 
-# Copy source
-COPY . .
+# Copy source (explicit from repo root -> backend path)
+COPY backend/ ./
 
 # Debugging: show the contents of the workdir to verify server.js and other files were copied
 RUN echo "--- /usr/src/app contents (debug) ---" && ls -la /usr/src/app || true
