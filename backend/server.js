@@ -70,6 +70,16 @@ async function ensureYtDlp() {
       return c;
     }
   }
+
+  // If pre-installed in Dockerfile, use it
+  if (isExecutable(LOCAL_YTDLP)) {
+    process.env.YTDLP_PATH = LOCAL_YTDLP;
+    process.env.PATH = `${LOCAL_BIN_DIR}:${process.env.PATH || ''}`;
+    console.log('[init] yt-dlp pre-installed at', LOCAL_YTDLP);
+    return LOCAL_YTDLP;
+  }
+
+  // Fallback: download at runtime if not pre-installed
   try {
     await fs.mkdir(LOCAL_BIN_DIR, { recursive: true });
 

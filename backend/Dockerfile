@@ -34,8 +34,8 @@ RUN if [ -f package.json ]; then \
 # ---- runtime image ----
 FROM node:18-alpine AS runtime
 
-# Install runtime deps (ffmpeg for merging, wget to fetch yt-dlp)
-RUN apk add --no-cache ffmpeg wget ca-certificates
+# Install runtime deps (ffmpeg for merging, wget to fetch yt-dlp, curl for alternative download)
+RUN apk add --no-cache ffmpeg wget ca-certificates curl
 
 WORKDIR /usr/src/app
 
@@ -50,6 +50,11 @@ RUN if [ -d dist ]; then mkdir -p backend/dist && cp -r dist/* backend/dist/; fi
 # Create downloads directory and bin directory, and chown to node user (best-effort)
 RUN mkdir -p /usr/src/app/downloads /usr/src/app/backend/bin \
     && chown -R node:node /usr/src/app/downloads /usr/src/app/backend/bin || true
+
+# Pre-install yt-dlp using curl to avoid runtime download issues
+RUN curl -L -o /usr/src/app/backend/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/download/2024.12.13/yt-dlp \
+    && chmod +x /usr/src/app/backend/bin/yt-dlp \
+    && chown node:node /usr/src/app/backend/bin/yt-dlp || true
 
 # Use non-root user
 USER node
