@@ -280,11 +280,30 @@ app.post("/api/video-info", async (req, res) => {
     // Use original URL for yt-dlp (handles Shorts directly)
     let processedUrl = url;
 
+    // Try play-dl first (more reliable for some cases)
+    try {
+      const info = await play.video_info(processedUrl);
+      title = info.video_details.title || title;
+      author = info.video_details.channel?.name || author;
+      lengthSeconds = String(info.video_details.durationInSec || "");
+      viewCount = String(info.video_details.views || "");
+      thumbnail = info.video_details.thumbnails?.[0]?.url || thumbnail;
+      description = info.video_details.description || description;
+      uploadDate = info.video_details.uploadedAt || uploadDate;
+      formats = (info.format || []).map((f) => ({
+        quality: f.qualityLabel || f.quality || null,
+        container: f.container || null,
+        hasAudio: f.hasAudio || false,
+        hasVideo: f.hasVideo || true,
+        itag: f.itag || null
+      }));
+      console.log('[video-info] play-dl success, title:', title, 'formats:', formats.length);
+    } catch (playErr) {
+      console.warn('[video-info] play-dl failed, trying yt-dlp:', playErr?.message || playErr);
+    }
+
     // Wait for yt-dlp to be ready
     if (ytDlpReady) await ytDlpReady;
-
-    let title = null, author = null, lengthSeconds = null, viewCount = null, thumbnail = null, description = null, uploadDate = null;
-    let formats = [];
 
     // Primary method: yt-dlp spawn -J with robust fallback
     try {
