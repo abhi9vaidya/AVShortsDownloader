@@ -73,10 +73,10 @@ async function ensureYtDlp() {
   try {
     await fs.mkdir(LOCAL_BIN_DIR, { recursive: true });
 
-    // Use direct download URL that doesn't redirect
+    // Use specific version URL to avoid redirect issues
     const ytDlpUrl = process.platform === 'win32'
-      ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
-      : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+      ? 'https://github.com/yt-dlp/yt-dlp/releases/download/2024.12.13/yt-dlp.exe'
+      : 'https://github.com/yt-dlp/yt-dlp/releases/download/2024.12.13/yt-dlp';
 
     console.log('[init] downloading yt-dlp from:', ytDlpUrl);
 
@@ -86,34 +86,9 @@ async function ensureYtDlp() {
       const request = https.get(ytDlpUrl, {
         headers: {
           'User-Agent': 'Node.js yt-dlp downloader'
-        },
-        followRedirect: true,
-        maxRedirects: 5
+        }
       }, (response) => {
         console.log('[init] download response status:', response.statusCode);
-        if (response.statusCode >= 300 && response.statusCode < 400) {
-          // Handle redirect manually if needed
-          const redirectUrl = response.headers.location;
-          if (redirectUrl) {
-            console.log('[init] following redirect to:', redirectUrl);
-            https.get(redirectUrl, (redirectResponse) => {
-              if (redirectResponse.statusCode !== 200) {
-                reject(new Error('yt-dlp download status ' + redirectResponse.statusCode));
-                return;
-              }
-              redirectResponse.pipe(file);
-              file.on('finish', () => {
-                file.close();
-                resolve();
-              });
-              file.on('error', reject);
-            }).on('error', reject);
-          } else {
-            reject(new Error('Redirect without location header'));
-          }
-          return;
-        }
-
         if (response.statusCode !== 200) {
           reject(new Error('yt-dlp download status ' + response.statusCode));
           return;
