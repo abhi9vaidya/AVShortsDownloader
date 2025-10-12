@@ -264,7 +264,8 @@ app.post("/api/video-info", async (req, res) => {
       if (!ytDlpPath) throw new Error('yt-dlp binary not available');
       console.log('[video-info] Using yt-dlp path for spawn:', ytDlpPath);
       const args = [
-        '-J',
+        '--print-json',
+        '--no-download',
         '--user-agent',
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         '--referer',
@@ -281,7 +282,9 @@ app.post("/api/video-info", async (req, res) => {
         '5',
         '--no-warnings',
         '--ignore-errors',
-        '--force-ipv4'
+        '--force-ipv4',
+        '--format-sort',
+        'res:1080,fps,codec:h264:aac'
       ];
       if (fsSync.existsSync(COOKIES_FILE)) {
         args.push('--cookies', COOKIES_FILE);
