@@ -59,7 +59,16 @@ const POSSIBLE_DIST_DIRS = [
 ];
 const DIST_DIR = POSSIBLE_DIST_DIRS.find((p) => fsSync.existsSync(p));
 
+// Diagnostics: log candidates and selection
+try {
+  console.log('[init] DIST candidates check:', POSSIBLE_DIST_DIRS.map(p => [p, fsSync.existsSync(p)]));
+} catch (e) {}
+
 if (DIST_DIR) {
+  try {
+    console.log('[init] Serving frontend from:', DIST_DIR);
+    console.log('[init] Dist sample files:', fsSync.readdirSync(DIST_DIR).slice(0, 20));
+  } catch (e) {}
   app.use(express.static(DIST_DIR));
   // SPA fallback: serve index.html for any non-API GET
   app.get(/^\/(?!api\/|health).*/, (req, res) => {
@@ -67,6 +76,7 @@ if (DIST_DIR) {
   });
 } else {
   // If dist doesn't exist, keep a small root message for convenience
+  try { console.log('[init] No dist dir found. Root will show API banner. __dirname=', __dirname); } catch(e) {}
   app.get("/", (req, res) => {
     res.send("Swift Shorts Downloader API — health: GET /health — downloads dir: " + DOWNLOADS_DIR);
   });
