@@ -100,9 +100,12 @@ async function ensureYtDlp() {
   }
 }
 
+let ytDlpReady = null;
+
 // Add local bin to PATH and kick off ensure in background
 process.env.PATH = `${LOCAL_BIN_DIR}:${process.env.PATH || ''}`;
-ensureYtDlp().then((p) => console.log('[init] yt-dlp available at', p || 'not found')).catch((e) => console.warn('[init] yt-dlp ensure failed', e));
+ytDlpReady = ensureYtDlp();
+ytDlpReady.then((p) => console.log('[init] yt-dlp available at', p || 'not found')).catch((e) => console.warn('[init] yt-dlp ensure failed', e));
 
 // Serve static frontend from dist if it exists (production build)
 // Try both ./dist (when built inside backend) and ../dist (when built at repo root)
@@ -170,6 +173,9 @@ app.post("/api/video-info", async (req, res) => {
       console.log('[video-info] Converted Shorts URL to:', processedUrl);
     }
 
+    // Wait for yt-dlp to be ready
+    if (ytDlpReady) await ytDlpReady;
+
     let title = null, author = null, lengthSeconds = null, viewCount = null, thumbnail = null, description = null, uploadDate = null;
     let formats = [];
 
@@ -201,7 +207,9 @@ app.post("/api/video-info", async (req, res) => {
     // Fallback to yt-dlp if ytdl-core failed or no formats
     if (!formats || formats.length === 0) {
       try {
-        const parsed = await ytdlExec(processedUrl, { dumpJson: true });
+        const ytDlpBin = process.env.YTDLP_PATH;
+        if (!ytDlpBin) throw new Error('yt-dlp binary not available');
+        const parsed = await ytdlExec(processedUrl, { dumpJson: true }, { bin: ytDlpBin });
         title = parsed.title || title;
         author = parsed.uploader || parsed.channel || author;
         lengthSeconds = parsed.duration ? String(parsed.duration) : lengthSeconds;
@@ -250,7 +258,9 @@ app.post("/api/video-info", async (req, res) => {
     // yt-dlp fallback (if available) - spawn yt-dlp -J
     if ((!formats || formats.length === 0)) {
       try {
-        const child = spawn(process.env.YTDLP_PATH || 'yt-dlp', ['-J', processedUrl], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
+        if (!ytDlpPath) throw new Error('yt-dlp binary not available');
+        const child = spawn(ytDlpPath, ['-J', processedUrl], { stdio: ['ignore', 'pipe', 'pipe'] });
         let out = '', errOut = '';
         child.stdout.on('data', (c) => out += c.toString());
         child.stderr.on('data', (c) => errOut += c.toString());
