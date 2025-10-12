@@ -12,6 +12,7 @@ const fsSync = require("fs");
 const { createWriteStream } = require("fs");
 const sanitize = require("sanitize-filename");
 const os = require("os");
+const https = require("https");
 
 const app = express();
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT || 3000);
@@ -50,6 +51,44 @@ app.use(cors({
   allowedHeaders: ["Content-Type"]
 }));
 app.use(express.json());
+
+// Ensure yt-dlp is available at runtime (download to local bin if missing)
+const LOCAL_BIN_DIR = path.join(__dirname, 'bin');
+const LOCAL_YTDLP = path.join(LOCAL_BIN_DIR, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
+
+function isExecutable(p) {
+  try { fsSync.accessSync(p, fsSync.constants.X_OK); return true; } catch { return false; }
+}
+
+async function ensureYtDlp() {
+  const candidates = [process.env.YTDLP_PATH, '/usr/local/bin/yt-dlp', LOCAL_YTDLP].filter(Boolean);
+  for (const c of candidates) {
+    if (isExecutable(c)) {
+      process.env.YTDLP_PATH = c;
+      return c;
+    }
+  }
+  try {
+    await fs.mkdir(LOCAL_BIN_DIR, { recursive: true });
+    const ytDlpUrl = process.platform === 'win32' ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+    const response = await fetch(ytDlpUrl);
+    if (!response.ok) throw new Error('yt-dlp download status ' + response.status);
+    const buffer = await response.arrayBuffer();
+    await fs.writeFile(LOCAL_YTDLP, Buffer.from(buffer));
+    if (process.platform !== 'win32') await fs.chmod(LOCAL_YTDLP, 0o755);
+    process.env.YTDLP_PATH = LOCAL_YTDLP;
+    process.env.PATH = `${LOCAL_BIN_DIR}:${process.env.PATH || ''}`;
+    console.log('[init] downloaded yt-dlp to', LOCAL_YTDLP);
+    return LOCAL_YTDLP;
+  } catch (e) {
+    console.warn('[init] could not ensure yt-dlp:', e?.message || e);
+    return null;
+  }
+}
+
+// Add local bin to PATH and kick off ensure in background
+process.env.PATH = `${LOCAL_BIN_DIR}:${process.env.PATH || ''}`;
+ensureYtDlp().then((p) => console.log('[init] yt-dlp available at', p || 'not found')).catch((e) => console.warn('[init] yt-dlp ensure failed', e));
 
 // Serve static frontend from dist if it exists (production build)
 // Try both ./dist (when built inside backend) and ../dist (when built at repo root)
@@ -110,7 +149,45 @@ app.post("/api/video-info", async (req, res) => {
     let title = null, author = null, lengthSeconds = null, viewCount = null, thumbnail = null, description = null, uploadDate = null;
     let formats = [];
 
-    if (ytdl) {
+    // Prefer yt-dlp JSON first on servers (more robust)
+    try {
+      const child = spawn('yt-dlp', ['-J', url], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '', errOut = '';
+      child.stdout.on('data', (c) => out += c.toString());
+      child.stderr.on('data', (c) => errOut += c.toString());
+      const exitCode = await new Promise((resolve, reject) => {
+        child.on('error', reject);
+        child.on('close', (code) => resolve(code));
+      });
+      if (exitCode === 0 && out) {
+        try {
+          const parsed = JSON.parse(out);
+          title = parsed.title || title;
+          author = parsed.uploader || parsed.channel || author;
+          lengthSeconds = parsed.duration ? String(parsed.duration) : lengthSeconds;
+          viewCount = parsed.view_count ? String(parsed.view_count) : viewCount;
+          thumbnail = (parsed.thumbnail || (Array.isArray(parsed.thumbnails) && parsed.thumbnails.length ? parsed.thumbnails[parsed.thumbnails.length-1].url : null)) || thumbnail;
+          description = parsed.description || description;
+          uploadDate = parsed.upload_date || uploadDate;
+          const yformats = parsed.formats || [];
+          formats = yformats.map((f) => ({
+            quality: f.format_note || f.qualityLabel || (f.abr ? `${f.abr} kbps` : null) || null,
+            container: f.ext || (f.format ? String(f.format).split(' ')[0] : null) || null,
+            hasAudio: !!(f.acodec && f.acodec !== 'none') || !!f.abr,
+            hasVideo: !!(f.vcodec && f.vcodec !== 'none') || !!f.width,
+            itag: f.format_id || f.itag || null
+          }));
+        } catch (parseErr) {
+          console.warn('[video-info] yt-dlp first parse failed:', parseErr?.message || parseErr);
+        }
+      } else {
+        console.warn('[video-info] yt-dlp -J first failed:', exitCode, errOut.slice(0,200));
+      }
+    } catch (e) {
+      console.warn('[video-info] yt-dlp first error:', e?.message || e);
+    }
+
+    if (ytdl && (!formats || formats.length === 0)) {
       try {
         const yi = await ytdl.getInfo(url);
         title = yi.videoDetails?.title || null;
@@ -214,7 +291,33 @@ app.post("/api/download", async (req, res) => {
     if (!url) return res.status(400).json({ error: "URL is required" });
     if (!isValidYouTubeUrl(url)) return res.status(400).json({ error: "Invalid YouTube URL" });
 
-    // Try play-dl stream
+    // Prefer yt-dlp stdout streaming first (more reliable on servers)
+    try {
+      const ytdlpCmd = 'yt-dlp';
+      const ytdlpArgs = ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', '-', url];
+      const child = spawn(ytdlpCmd, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+      child.on('error', (err) => {
+        console.error('[download] yt-dlp spawn error (first):', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'yt-dlp not available', message: err.message });
+        }
+      });
+
+      const fallbackFilename = `video-${Date.now()}.mp4`;
+      if (!res.headersSent) {
+        res.setHeader('Content-Disposition', `attachment; filename="${fallbackFilename}"`);
+        res.setHeader('Content-Type', 'video/mp4');
+      }
+
+      child.stdout.pipe(res);
+      child.stderr.on('data', (c) => console.log('[yt-dlp stderr]', String(c).slice(0,200)));
+      child.on('close', (code) => console.log('[download] yt-dlp (first) closed with code', code));
+      return;
+    } catch (e) {
+      console.warn('[download] yt-dlp first streaming failed:', e?.message || e);
+    }
+
+// Try play-dl stream
     try {
       const info = await play.video_info(url).catch(() => null);
       const title = info && info.video_details ? sanitize(info.video_details.title) : `video-${Date.now()}`;
@@ -355,6 +458,28 @@ app.post("/api/download-audio", async (req, res) => {
   try {
     const { url, quality } = req.body || {};
     if (!url) return res.status(400).json({ error: "URL is required" });
+
+    // Prefer yt-dlp stdout streaming first (more reliable on servers)
+    try {
+      const child = spawn('yt-dlp', ['--no-playlist', '-f', 'bestaudio', '-o', '-', url], { stdio: ['ignore', 'pipe', 'pipe'] });
+      child.on('error', (err) => {
+        console.error('[download-audio] yt-dlp spawn error (first):', err);
+        if (!res.headersSent) return res.status(500).json({ error: 'yt-dlp spawn failed', message: err.message });
+      });
+
+      const fallbackFilename = `audio-${Date.now()}.mp3`;
+      if (!res.headersSent) {
+        res.setHeader('Content-Disposition', `attachment; filename="${fallbackFilename}"`);
+        res.setHeader('Content-Type', 'application/octet-stream');
+      }
+
+      child.stdout.pipe(res);
+      child.stderr.on('data', (c) => console.log('[yt-dlp stderr]', String(c).slice(0,200)));
+      child.on('close', (code) => console.log('[download-audio] yt-dlp (first) close', code));
+      return;
+    } catch (e) {
+      console.warn('[download-audio] yt-dlp first streaming failed:', e?.message || e);
+    }
 
     try {
       const info = await play.video_info(url).catch(() => null);
