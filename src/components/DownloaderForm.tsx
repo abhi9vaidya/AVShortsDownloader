@@ -31,7 +31,7 @@ interface VideoResult {
   description?: string;
 }
 
-const BACKEND = (import.meta.env.VITE_BACKEND_URL as string) || "http://localhost:3000";
+const BACKEND = "https://avshortsdownloader.onrender.com";
 
 const DownloaderForm = () => {
   const [url, setUrl] = useState("");
