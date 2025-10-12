@@ -181,8 +181,50 @@ app.post("/api/video-info", async (req, res) => {
     let title = null, author = null, lengthSeconds = null, viewCount = null, thumbnail = null, description = null, uploadDate = null;
     let formats = [];
 
-    // Prefer ytdl-core first for YouTube (more reliable for YouTube Shorts)
-    if (ytdl) {
+    // Primary method: yt-dlp spawn -J
+    try {
+      const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
+      if (!ytDlpPath) throw new Error('yt-dlp binary not available');
+      console.log('[video-info] Using yt-dlp path for spawn:', ytDlpPath);
+      const child = spawn(ytDlpPath, ['-J', processedUrl], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '', errOut = '';
+      child.stdout.on('data', (c) => out += c.toString());
+      child.stderr.on('data', (c) => errOut += c.toString());
+      const exitCode = await new Promise((resolve, reject) => {
+        child.on('error', reject);
+        child.on('close', (code) => resolve(code));
+      });
+      if (exitCode === 0 && out) {
+        try {
+          const parsed = JSON.parse(out);
+          title = parsed.title || title;
+          author = parsed.uploader || parsed.channel || author;
+          lengthSeconds = parsed.duration ? String(parsed.duration) : lengthSeconds;
+          viewCount = parsed.view_count ? String(parsed.view_count) : viewCount;
+          thumbnail = (parsed.thumbnail || (Array.isArray(parsed.thumbnails) && parsed.thumbnails.length ? parsed.thumbnails[parsed.thumbnails.length-1].url : null)) || thumbnail;
+          description = parsed.description || description;
+          uploadDate = parsed.upload_date || uploadDate;
+          const yformats = parsed.formats || [];
+          formats = yformats.map((f) => ({
+            quality: f.format_note || f.qualityLabel || (f.abr ? `${f.abr} kbps` : null) || null,
+            container: f.ext || (f.format ? String(f.format).split(' ')[0] : null) || null,
+            hasAudio: !!(f.acodec && f.acodec !== 'none') || !!f.abr,
+            hasVideo: !!(f.vcodec && f.vcodec !== 'none') || !!f.width,
+            itag: f.format_id || f.itag || null
+          }));
+          console.log('[video-info] yt-dlp spawn success, title:', title, 'formats:', formats.length);
+        } catch (parseErr) {
+          console.warn('[video-info] failed to parse yt-dlp JSON:', parseErr?.message || parseErr);
+        }
+      } else {
+        console.warn('[video-info] yt-dlp -J failed:', exitCode, errOut.slice(0,200));
+      }
+    } catch (e) {
+      console.warn('[video-info] yt-dlp spawn error:', e?.message || e);
+    }
+
+    // Fallback to ytdl-core if yt-dlp failed
+    if ((!formats || formats.length === 0) && ytdl) {
       try {
         const yi = await ytdl.getInfo(processedUrl);
         title = yi.videoDetails?.title || title;
@@ -200,104 +242,9 @@ app.post("/api/video-info", async (req, res) => {
           hasVideo: !!f.qualityLabel || !!f.width || /video/i.test(String(f.mimeType)),
           itag: f.itag || null
         }));
-        console.log('[video-info] ytdl-core success, title:', title, 'formats:', formats.length);
+        console.log('[video-info] ytdl-core fallback success, title:', title, 'formats:', formats.length);
       } catch (err) {
-        console.warn('[video-info] ytdl-core failed:', err?.message || err);
-      }
-    }
-
-    // Fallback to yt-dlp if ytdl-core failed or no formats
-    if (!formats || formats.length === 0) {
-      try {
-        const ytDlpBin = process.env.YTDLP_PATH;
-        if (!ytDlpBin) throw new Error('yt-dlp binary not available');
-        const parsed = await ytdlExec(processedUrl, { dumpJson: true, bin: ytDlpBin });
-        title = parsed.title || title;
-        author = parsed.uploader || parsed.channel || author;
-        lengthSeconds = parsed.duration ? String(parsed.duration) : lengthSeconds;
-        viewCount = parsed.view_count ? String(parsed.view_count) : viewCount;
-        thumbnail = (parsed.thumbnail || (Array.isArray(parsed.thumbnails) && parsed.thumbnails.length ? parsed.thumbnails[parsed.thumbnails.length-1].url : null)) || thumbnail;
-        description = parsed.description || description;
-        uploadDate = parsed.upload_date || uploadDate;
-        const yformats = parsed.formats || [];
-        formats = yformats.map((f) => ({
-          quality: f.format_note || f.qualityLabel || (f.abr ? `${f.abr} kbps` : null) || null,
-          container: f.ext || (f.format ? String(f.format).split(' ')[0] : null) || null,
-          hasAudio: !!(f.acodec && f.acodec !== 'none') || !!f.abr,
-          hasVideo: !!(f.vcodec && f.vcodec !== 'none') || !!f.width,
-          itag: f.format_id || f.itag || null
-        }));
-        console.log('[video-info] yt-dlp success, title:', title, 'formats:', formats.length);
-      } catch (e) {
-        console.warn('[video-info] yt-dlp error:', e?.message || e);
-      }
-    }
-
-    if ((!formats || formats.length === 0)) {
-      try {
-        const info = await play.video_info(url);
-        const video = info.video_details || {};
-        title = title || video.title || null;
-        author = author || video.channel?.name || null;
-        lengthSeconds = lengthSeconds || (video.durationInSec ? String(video.durationInSec) : null);
-        viewCount = viewCount || (video.views ? String(video.views) : null);
-        thumbnail = thumbnail || video.thumbnails?.[video.thumbnails.length - 1]?.url || null;
-        description = description || video.description || null;
-        uploadDate = uploadDate || video.uploadDate || null;
-
-        formats = (info.formats || []).map((f) => ({
-          quality: f.qualityLabel || f.quality || null,
-          container: f.container || null,
-          hasAudio: typeof f.hasAudio === 'boolean' ? f.hasAudio : (f.audioBitrate != null),
-          hasVideo: typeof f.hasVideo === 'boolean' ? f.hasVideo : (f.qualityLabel != null || f.fps != null),
-          itag: f.itag || null
-        }));
-      } catch (err2) {
-        console.warn('[video-info] play.video_info failed:', err2?.message || err2);
-      }
-    }
-
-    // yt-dlp fallback (if available) - spawn yt-dlp -J
-    if ((!formats || formats.length === 0)) {
-      try {
-        const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
-        if (!ytDlpPath) throw new Error('yt-dlp binary not available');
-        console.log('[video-info] Using yt-dlp path for spawn:', ytDlpPath);
-        const child = spawn(ytDlpPath, ['-J', processedUrl], { stdio: ['ignore', 'pipe', 'pipe'] });
-        let out = '', errOut = '';
-        child.stdout.on('data', (c) => out += c.toString());
-        child.stderr.on('data', (c) => errOut += c.toString());
-        const exitCode = await new Promise((resolve, reject) => {
-          child.on('error', reject);
-          child.on('close', (code) => resolve(code));
-        });
-        if (exitCode === 0 && out) {
-          try {
-            const parsed = JSON.parse(out);
-            title = parsed.title || title;
-            author = parsed.uploader || parsed.channel || author;
-            lengthSeconds = parsed.duration ? String(parsed.duration) : lengthSeconds;
-            viewCount = parsed.view_count ? String(parsed.view_count) : viewCount;
-            thumbnail = (parsed.thumbnail || (Array.isArray(parsed.thumbnails) && parsed.thumbnails.length ? parsed.thumbnails[parsed.thumbnails.length-1].url : null)) || thumbnail;
-            description = parsed.description || description;
-            uploadDate = parsed.upload_date || uploadDate;
-            const yformats = parsed.formats || [];
-            formats = yformats.map((f) => ({
-              quality: f.format_note || f.qualityLabel || (f.abr ? `${f.abr} kbps` : null) || null,
-              container: f.ext || (f.format ? String(f.format).split(' ')[0] : null) || null,
-              hasAudio: !!(f.acodec && f.acodec !== 'none') || !!f.abr,
-              hasVideo: !!(f.vcodec && f.vcodec !== 'none') || !!f.width,
-              itag: f.format_id || f.itag || null
-            }));
-            console.log('[video-info] yt-dlp spawn success, title:', title, 'formats:', formats.length);
-          } catch (parseErr) {
-            console.warn('[video-info] failed to parse yt-dlp JSON:', parseErr?.message || parseErr);
-          }
-        } else {
-          console.warn('[video-info] yt-dlp -J failed:', exitCode, errOut.slice(0,200));
-        }
-      } catch (e) {
-        console.warn('[video-info] yt-dlp fallback error:', e?.message || e);
+        console.warn('[video-info] ytdl-core fallback failed:', err?.message || err);
       }
     }
 
