@@ -160,13 +160,23 @@ app.post("/api/video-info", async (req, res) => {
     if (!url) return res.status(400).json({ error: "URL is required" });
     if (!isValidYouTubeUrl(url)) return res.status(400).json({ error: "Invalid YouTube URL" });
 
+    console.log('[video-info] Request for URL:', url);
+
+    // Convert Shorts URL to watch URL for better compatibility
+    let processedUrl = url;
+    if (url.includes('/shorts/')) {
+      const videoId = url.split('/shorts/')[1].split('?')[0];
+      processedUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      console.log('[video-info] Converted Shorts URL to:', processedUrl);
+    }
+
     let title = null, author = null, lengthSeconds = null, viewCount = null, thumbnail = null, description = null, uploadDate = null;
     let formats = [];
 
     // Prefer ytdl-core first for YouTube (more reliable for YouTube Shorts)
     if (ytdl) {
       try {
-        const yi = await ytdl.getInfo(url);
+        const yi = await ytdl.getInfo(processedUrl);
         title = yi.videoDetails?.title || title;
         author = yi.videoDetails?.author?.name || author;
         lengthSeconds = String(yi.videoDetails?.lengthSeconds || "");
@@ -182,6 +192,7 @@ app.post("/api/video-info", async (req, res) => {
           hasVideo: !!f.qualityLabel || !!f.width || /video/i.test(String(f.mimeType)),
           itag: f.itag || null
         }));
+        console.log('[video-info] ytdl-core success, title:', title, 'formats:', formats.length);
       } catch (err) {
         console.warn('[video-info] ytdl-core failed:', err?.message || err);
       }
@@ -190,7 +201,7 @@ app.post("/api/video-info", async (req, res) => {
     // Fallback to yt-dlp if ytdl-core failed or no formats
     if (!formats || formats.length === 0) {
       try {
-        const parsed = await ytdlExec(url, { dumpJson: true });
+        const parsed = await ytdlExec(processedUrl, { dumpJson: true });
         title = parsed.title || title;
         author = parsed.uploader || parsed.channel || author;
         lengthSeconds = parsed.duration ? String(parsed.duration) : lengthSeconds;
@@ -206,6 +217,7 @@ app.post("/api/video-info", async (req, res) => {
           hasVideo: !!(f.vcodec && f.vcodec !== 'none') || !!f.width,
           itag: f.format_id || f.itag || null
         }));
+        console.log('[video-info] yt-dlp success, title:', title, 'formats:', formats.length);
       } catch (e) {
         console.warn('[video-info] yt-dlp error:', e?.message || e);
       }
