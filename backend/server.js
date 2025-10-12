@@ -72,14 +72,48 @@ async function ensureYtDlp() {
   }
   try {
     await fs.mkdir(LOCAL_BIN_DIR, { recursive: true });
-    // Use a more recent stable version URL
+
+    // Use direct download URL that doesn't redirect
     const ytDlpUrl = process.platform === 'win32'
-      ? 'https://github.com/yt-dlp/yt-dlp/releases/download/2024.12.13/yt-dlp.exe'
-      : 'https://github.com/yt-dlp/yt-dlp/releases/download/2024.12.13/yt-dlp_linux';
+      ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+      : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+
+    console.log('[init] downloading yt-dlp from:', ytDlpUrl);
+
     const file = fsSync.createWriteStream(LOCAL_YTDLP);
 
     await new Promise((resolve, reject) => {
-      const request = https.get(ytDlpUrl, (response) => {
+      const request = https.get(ytDlpUrl, {
+        headers: {
+          'User-Agent': 'Node.js yt-dlp downloader'
+        },
+        followRedirect: true,
+        maxRedirects: 5
+      }, (response) => {
+        console.log('[init] download response status:', response.statusCode);
+        if (response.statusCode >= 300 && response.statusCode < 400) {
+          // Handle redirect manually if needed
+          const redirectUrl = response.headers.location;
+          if (redirectUrl) {
+            console.log('[init] following redirect to:', redirectUrl);
+            https.get(redirectUrl, (redirectResponse) => {
+              if (redirectResponse.statusCode !== 200) {
+                reject(new Error('yt-dlp download status ' + redirectResponse.statusCode));
+                return;
+              }
+              redirectResponse.pipe(file);
+              file.on('finish', () => {
+                file.close();
+                resolve();
+              });
+              file.on('error', reject);
+            }).on('error', reject);
+          } else {
+            reject(new Error('Redirect without location header'));
+          }
+          return;
+        }
+
         if (response.statusCode !== 200) {
           reject(new Error('yt-dlp download status ' + response.statusCode));
           return;
@@ -94,23 +128,56 @@ async function ensureYtDlp() {
       request.on('error', reject);
     });
 
-    // Ensure executable permissions with retry
+    // Ensure executable permissions with multiple fallbacks
     if (process.platform !== 'win32') {
+      let permissionsSet = false;
+
+      // Try fs.chmod first
       try {
         await fs.chmod(LOCAL_YTDLP, 0o755);
-        // Verify permissions
         await fs.access(LOCAL_YTDLP, fs.constants.X_OK);
-        console.log('[init] yt-dlp executable permissions set successfully');
+        console.log('[init] yt-dlp executable permissions set successfully via fs.chmod');
+        permissionsSet = true;
       } catch (permErr) {
-        console.warn('[init] failed to set executable permissions:', permErr.message);
-        // Try alternative permission setting
+        console.warn('[init] fs.chmod failed:', permErr.message);
+      }
+
+      // Try execSync chmod as fallback
+      if (!permissionsSet) {
         try {
           const { execSync } = require('child_process');
-          execSync(`chmod +x ${LOCAL_YTDLP}`);
-          console.log('[init] yt-dlp permissions set via chmod command');
+          execSync(`chmod +x "${LOCAL_YTDLP}"`, { stdio: 'inherit' });
+          console.log('[init] yt-dlp permissions set via execSync chmod');
+          permissionsSet = true;
         } catch (cmdErr) {
-          console.warn('[init] chmod command also failed:', cmdErr.message);
+          console.warn('[init] execSync chmod failed:', cmdErr.message);
         }
+      }
+
+      // Final fallback: try spawn chmod
+      if (!permissionsSet) {
+        try {
+          const { spawn } = require('child_process');
+          await new Promise((resolve, reject) => {
+            const chmodProcess = spawn('chmod', ['+x', LOCAL_YTDLP], { stdio: 'inherit' });
+            chmodProcess.on('close', (code) => {
+              if (code === 0) {
+                console.log('[init] yt-dlp permissions set via spawn chmod');
+                resolve();
+              } else {
+                reject(new Error(`chmod exited with code ${code}`));
+              }
+            });
+            chmodProcess.on('error', reject);
+          });
+          permissionsSet = true;
+        } catch (spawnErr) {
+          console.warn('[init] spawn chmod failed:', spawnErr.message);
+        }
+      }
+
+      if (!permissionsSet) {
+        console.warn('[init] WARNING: Could not set executable permissions for yt-dlp');
       }
     }
 
