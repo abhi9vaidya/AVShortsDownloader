@@ -31,7 +31,7 @@ interface VideoResult {
   description?: string;
 }
 
-const BACKEND = import.meta.env.VITE_BACKEND_URL || "http://localhost:3000";
+const BACKEND = import.meta.env.VITE_BACKEND_URL || "";
 
 const DownloaderForm = () => {
   const [url, setUrl] = useState("");
