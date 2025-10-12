@@ -273,18 +273,18 @@ app.post("/api/video-info", async (req, res) => {
         '--geo-bypass',
         '--no-check-certificates',
         '--extractor-args',
-        'youtube:player_skip=js,dash,translated_subs',
+        'youtube:player_skip=js,dash,translated_subs;player_client=android',
         '--extractor-retries',
-        '3',
-        '--sleep-requests',
-        '2',
-        '--sleep-interval',
         '5',
+        '--sleep-requests',
+        '3',
+        '--sleep-interval',
+        '8',
         '--no-warnings',
         '--ignore-errors',
         '--force-ipv4',
-        '--format-sort',
-        'res:1080,fps,codec:h264:aac'
+        '--no-playlist',
+        '--flat-playlist'
       ];
       if (fsSync.existsSync(COOKIES_FILE)) {
         args.push('--cookies', COOKIES_FILE);
