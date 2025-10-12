@@ -53,7 +53,7 @@ RUN wget -q -O /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/l
 
 # Create downloads directory and chown to node user (best-effort)
 RUN mkdir -p /usr/src/app/downloads \
-    && chown -R node:node /usr/src/app || true
+    && chown node:node /usr/src/app/downloads || true
 
 # Use non-root user
 USER node
