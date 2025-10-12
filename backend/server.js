@@ -284,7 +284,9 @@ app.post("/api/video-info", async (req, res) => {
         '--ignore-errors',
         '--force-ipv4',
         '--no-playlist',
-        '--flat-playlist'
+        '--flat-playlist',
+        '--format-sort',
+        'ext:mp4:m4a'
       ];
       if (fsSync.existsSync(COOKIES_FILE)) {
         args.push('--cookies', COOKIES_FILE);

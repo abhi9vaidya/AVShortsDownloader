@@ -52,7 +52,7 @@ RUN mkdir -p /usr/src/app/downloads /usr/src/app/backend/bin \
     && chown -R node:node /usr/src/app/downloads /usr/src/app/backend/bin || true
 
 # Pre-install yt-dlp using curl to avoid runtime download issues
-RUN curl -L -o /usr/src/app/backend/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/download/2024.12.13/yt-dlp \
+RUN curl -L -o /usr/src/app/backend/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
     && chmod +x /usr/src/app/backend/bin/yt-dlp \
     && chown node:node /usr/src/app/backend/bin/yt-dlp || true
 
