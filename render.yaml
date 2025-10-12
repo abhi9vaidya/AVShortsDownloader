@@ -17,4 +17,6 @@ services:
     branch: blackboxai/fix-backend
     buildCommand: npm ci && npm run build
     publishPath: dist
+    envVars:
+      VITE_BACKEND_URL: https://shorts-backend.onrender.com
     plan: free
