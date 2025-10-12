@@ -250,7 +250,7 @@ app.post("/api/video-info", async (req, res) => {
     // yt-dlp fallback (if available) - spawn yt-dlp -J
     if ((!formats || formats.length === 0)) {
       try {
-        const child = spawn('yt-dlp', ['-J', url], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const child = spawn(process.env.YTDLP_PATH || 'yt-dlp', ['-J', processedUrl], { stdio: ['ignore', 'pipe', 'pipe'] });
         let out = '', errOut = '';
         child.stdout.on('data', (c) => out += c.toString());
         child.stderr.on('data', (c) => errOut += c.toString());
@@ -261,6 +261,13 @@ app.post("/api/video-info", async (req, res) => {
         if (exitCode === 0 && out) {
           try {
             const parsed = JSON.parse(out);
+            title = parsed.title || title;
+            author = parsed.uploader || parsed.channel || author;
+            lengthSeconds = parsed.duration ? String(parsed.duration) : lengthSeconds;
+            viewCount = parsed.view_count ? String(parsed.view_count) : viewCount;
+            thumbnail = (parsed.thumbnail || (Array.isArray(parsed.thumbnails) && parsed.thumbnails.length ? parsed.thumbnails[parsed.thumbnails.length-1].url : null)) || thumbnail;
+            description = parsed.description || description;
+            uploadDate = parsed.upload_date || uploadDate;
             const yformats = parsed.formats || [];
             formats = yformats.map((f) => ({
               quality: f.format_note || f.qualityLabel || (f.abr ? `${f.abr} kbps` : null) || null,
@@ -269,6 +276,7 @@ app.post("/api/video-info", async (req, res) => {
               hasVideo: !!(f.vcodec && f.vcodec !== 'none') || !!f.width,
               itag: f.format_id || f.itag || null
             }));
+            console.log('[video-info] yt-dlp spawn success, title:', title, 'formats:', formats.length);
           } catch (parseErr) {
             console.warn('[video-info] failed to parse yt-dlp JSON:', parseErr?.message || parseErr);
           }
