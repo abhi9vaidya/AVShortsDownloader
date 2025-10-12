@@ -5,6 +5,7 @@
 const express = require("express");
 const cors = require("cors");
 const play = require("play-dl");
+const ytdlExec = require('youtube-dl-exec');
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs").promises;
@@ -65,16 +66,29 @@ async function ensureYtDlp() {
   for (const c of candidates) {
     if (isExecutable(c)) {
       process.env.YTDLP_PATH = c;
+      console.log('[init] yt-dlp available at', c);
       return c;
     }
   }
   try {
     await fs.mkdir(LOCAL_BIN_DIR, { recursive: true });
     const ytDlpUrl = process.platform === 'win32' ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
-    const response = await fetch(ytDlpUrl);
-    if (!response.ok) throw new Error('yt-dlp download status ' + response.status);
-    const buffer = await response.arrayBuffer();
-    await fs.writeFile(LOCAL_YTDLP, Buffer.from(buffer));
+    const file = fsSync.createWriteStream(LOCAL_YTDLP);
+    await new Promise((resolve, reject) => {
+      const request = https.get(ytDlpUrl, (response) => {
+        if (response.statusCode !== 200) {
+          reject(new Error('yt-dlp download status ' + response.statusCode));
+          return;
+        }
+        response.pipe(file);
+        file.on('finish', () => {
+          file.close();
+          resolve();
+        });
+        file.on('error', reject);
+      });
+      request.on('error', reject);
+    });
     if (process.platform !== 'win32') await fs.chmod(LOCAL_YTDLP, 0o755);
     process.env.YTDLP_PATH = LOCAL_YTDLP;
     process.env.PATH = `${LOCAL_BIN_DIR}:${process.env.PATH || ''}`;
@@ -151,38 +165,22 @@ app.post("/api/video-info", async (req, res) => {
 
     // Prefer yt-dlp JSON first on servers (more robust)
     try {
-      const child = spawn('yt-dlp', ['-J', url], { stdio: ['ignore', 'pipe', 'pipe'] });
-      let out = '', errOut = '';
-      child.stdout.on('data', (c) => out += c.toString());
-      child.stderr.on('data', (c) => errOut += c.toString());
-      const exitCode = await new Promise((resolve, reject) => {
-        child.on('error', reject);
-        child.on('close', (code) => resolve(code));
-      });
-      if (exitCode === 0 && out) {
-        try {
-          const parsed = JSON.parse(out);
-          title = parsed.title || title;
-          author = parsed.uploader || parsed.channel || author;
-          lengthSeconds = parsed.duration ? String(parsed.duration) : lengthSeconds;
-          viewCount = parsed.view_count ? String(parsed.view_count) : viewCount;
-          thumbnail = (parsed.thumbnail || (Array.isArray(parsed.thumbnails) && parsed.thumbnails.length ? parsed.thumbnails[parsed.thumbnails.length-1].url : null)) || thumbnail;
-          description = parsed.description || description;
-          uploadDate = parsed.upload_date || uploadDate;
-          const yformats = parsed.formats || [];
-          formats = yformats.map((f) => ({
-            quality: f.format_note || f.qualityLabel || (f.abr ? `${f.abr} kbps` : null) || null,
-            container: f.ext || (f.format ? String(f.format).split(' ')[0] : null) || null,
-            hasAudio: !!(f.acodec && f.acodec !== 'none') || !!f.abr,
-            hasVideo: !!(f.vcodec && f.vcodec !== 'none') || !!f.width,
-            itag: f.format_id || f.itag || null
-          }));
-        } catch (parseErr) {
-          console.warn('[video-info] yt-dlp first parse failed:', parseErr?.message || parseErr);
-        }
-      } else {
-        console.warn('[video-info] yt-dlp -J first failed:', exitCode, errOut.slice(0,200));
-      }
+      const parsed = await ytdlExec(url, { dumpJson: true });
+      title = parsed.title || title;
+      author = parsed.uploader || parsed.channel || author;
+      lengthSeconds = parsed.duration ? String(parsed.duration) : lengthSeconds;
+      viewCount = parsed.view_count ? String(parsed.view_count) : viewCount;
+      thumbnail = (parsed.thumbnail || (Array.isArray(parsed.thumbnails) && parsed.thumbnails.length ? parsed.thumbnails[parsed.thumbnails.length-1].url : null)) || thumbnail;
+      description = parsed.description || description;
+      uploadDate = parsed.upload_date || uploadDate;
+      const yformats = parsed.formats || [];
+      formats = yformats.map((f) => ({
+        quality: f.format_note || f.qualityLabel || (f.abr ? `${f.abr} kbps` : null) || null,
+        container: f.ext || (f.format ? String(f.format).split(' ')[0] : null) || null,
+        hasAudio: !!(f.acodec && f.acodec !== 'none') || !!f.abr,
+        hasVideo: !!(f.vcodec && f.vcodec !== 'none') || !!f.width,
+        itag: f.format_id || f.itag || null
+      }));
     } catch (e) {
       console.warn('[video-info] yt-dlp first error:', e?.message || e);
     }
