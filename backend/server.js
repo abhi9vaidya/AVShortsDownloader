@@ -656,15 +656,17 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Something went wrong" });
 });
 
-// Start server after ensuring downloads dir
-ensureDownloadsDir().then(() => {
+// Start server after ensuring downloads dir and yt-dlp
+ensureDownloadsDir().then(async () => {
+  await ensureYtDlp();
   const server = app.listen(PORT, "0.0.0.0", () => {
     const addr = server.address();
     console.log(`🚀 Swift Shorts Downloader Backend running at http://${addr.address}:${addr.port}`);
     console.log(`📁 Downloads directory: ${DOWNLOADS_DIR}`);
   });
-}).catch((e) => {
+}).catch(async (e) => {
   console.error("Failed to initialize downloads dir:", e);
+  await ensureYtDlp();
   // Start anyway
   const server = app.listen(PORT, "0.0.0.0", () => {
     const addr = server.address();

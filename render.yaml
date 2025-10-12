@@ -18,5 +18,5 @@ services:
     buildCommand: npm ci && npm run build
     publishPath: dist
     envVars:
-      VITE_BACKEND_URL: https://shorts-backend.onrender.com
+      VITE_BACKEND_URL: https://avshortsdownloader.onrender.com
     plan: free
