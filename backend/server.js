@@ -1,4 +1,4 @@
-  // server.js (patched)
+// server.js (patched)
 // Serves a production frontend build (./dist) at / and provides API endpoints.
 // If creating the downloads directory fails due to permissions, fall back to os.tmpdir().
 
@@ -296,6 +296,7 @@ app.post("/api/video-info", async (req, res) => {
         '--format-sort',
         'ext:mp4:m4a'
       ];
+
       // ensure temp dir for fragments and only pass cookies if readable
       const tmpDir = os.tmpdir();
       const cookieArgs = getCookieArgs();
@@ -342,8 +343,9 @@ app.post("/api/video-info", async (req, res) => {
         console.warn('[video-info] yt-dlp -J failed:', exitCode, errOut.slice(0,200));
         // Fallback to best format if JSON fails
         try {
-          const cookieArgs = getCookieArgs();
-          const fallbackArgs = ['--no-playlist', '-f', 'best', '-o', '-', ...cookieArgs, processedUrl];
+          const cookieArgsFb = getCookieArgs();
+          const tmpDirFb = os.tmpdir();
+          const fallbackArgs = ['--no-playlist', '-f', 'best', '-o', '-', '--temp-dir', tmpDirFb, ...cookieArgsFb, processedUrl];
           const fallbackChild = spawn(ytDlpPath, fallbackArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
           fallbackChild.stderr.on('data', (c) => console.log('[video-info] fallback stderr:', String(c).slice(0,200)));
           fallbackChild.on('close', (code) => console.log('[video-info] fallback closed with code', code));
@@ -466,8 +468,9 @@ app.post("/api/download", async (req, res) => {
     // Fallback: stream via yt-dlp stdout (merged)
     try {
       const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
+      const tmpDir = os.tmpdir();
       const cookieArgs = getCookieArgs();
-      const ytdlpArgs = ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', '-', ...cookieArgs, url];
+      const ytdlpArgs = ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', '-', '--temp-dir', tmpDir, ...cookieArgs, url];
       const child = spawn(ytDlpPath, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
       child.on('error', (err) => {
@@ -482,8 +485,8 @@ app.post("/api/download", async (req, res) => {
 
       const fallbackFilename = `video-${Date.now()}.mp4`;
       if (!res.headersSent) {
-        res.setHeader("Content-Disposition", `attachment; filename="${fallbackFilename}"`);
-        res.setHeader("Content-Type", "video/mp4");
+        res.setHeader('Content-Disposition', `attachment; filename="${fallbackFilename}"`);
+        res.setHeader('Content-Type', 'video/mp4');
       }
 
       child.stdout.pipe(res);
@@ -500,7 +503,7 @@ app.post("/api/download", async (req, res) => {
       const tmpFilename = `video-${Date.now()}.%(ext)s`;
       const tmpPattern = path.join(tmpDir, tmpFilename);
       const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
-      const cookieArgs = fsSync.existsSync(COOKIES_FILE) ? ['--cookies', COOKIES_FILE] : [];
+      const cookieArgs = getCookieArgs();
       const ytdlpArgs = [
         '--no-playlist',
         '-f', 'bestvideo+bestaudio/best',
@@ -593,7 +596,9 @@ app.post("/api/download-audio", async (req, res) => {
     // Prefer yt-dlp stdout streaming first (more reliable on servers)
     try {
       const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
-      const child = spawn(ytDlpPath, ['--no-playlist', '-f', 'bestaudio', '-o', '-', url], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const tmpDir = os.tmpdir();
+      const cookieArgs = getCookieArgs();
+      const child = spawn(ytDlpPath, ['--no-playlist', '-f', 'bestaudio', '-o', '-', '--temp-dir', tmpDir, ...cookieArgs, url], { stdio: ['ignore', 'pipe', 'pipe'] });
       child.on('error', (err) => {
         console.error('[download-audio] yt-dlp spawn error (first):', err);
         if (!res.headersSent) return res.status(500).json({ error: 'yt-dlp spawn failed', message: err.message });
@@ -639,7 +644,9 @@ app.post("/api/download-audio", async (req, res) => {
     // fallback: yt-dlp to stdout (bestaudio)
     try {
       const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
-      const child = spawn(ytDlpPath, ['--no-playlist', '-f', 'bestaudio', '-o', '-', url], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const tmpDir = os.tmpdir();
+      const cookieArgs = getCookieArgs();
+      const child = spawn(ytDlpPath, ['--no-playlist', '-f', 'bestaudio', '-o', '-', '--temp-dir', tmpDir, ...cookieArgs, url], { stdio: ['ignore', 'pipe', 'pipe'] });
       child.on('error', (err) => {
         console.error('[download-audio] yt-dlp spawn error:', err);
         if (!res.headersSent) return res.status(500).json({ error: 'yt-dlp spawn failed', message: err.message });
@@ -665,7 +672,8 @@ app.post("/api/download-audio", async (req, res) => {
       const tmpFilename = `audio-${Date.now()}.%(ext)s`;
       const tmpPattern = path.join(tmpDir, tmpFilename);
       const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
-      const child = spawn(ytDlpPath, ['--no-playlist', '-f', 'bestaudio', '-o', tmpPattern, url], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const cookieArgs = getCookieArgs();
+      const child = spawn(ytDlpPath, ['--no-playlist', '-f', 'bestaudio', '-o', tmpPattern, '--temp-dir', tmpDir, ...cookieArgs, url], { stdio: ['ignore', 'pipe', 'pipe'] });
       child.stderr.on('data', (c) => console.log('[yt-dlp stderr]', String(c).slice(0,200)));
       const exitCode = await new Promise((resolve, reject) => {
         child.on('error', reject);
