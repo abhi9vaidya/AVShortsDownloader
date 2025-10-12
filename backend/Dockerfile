@@ -47,11 +47,9 @@ COPY --from=build /usr/src/app ./
 # Ensure backend/dist exists for servers that only serve backend/dist
 RUN if [ -d dist ]; then mkdir -p backend/dist && cp -r dist/* backend/dist/; fi || true
 
-
-
-# Create downloads directory and chown to node user (best-effort)
-RUN mkdir -p /usr/src/app/downloads \
-    && chown node:node /usr/src/app/downloads || true
+# Create downloads directory and bin directory, and chown to node user (best-effort)
+RUN mkdir -p /usr/src/app/downloads /usr/src/app/backend/bin \
+    && chown -R node:node /usr/src/app/downloads /usr/src/app/backend/bin || true
 
 # Use non-root user
 USER node
