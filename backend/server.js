@@ -56,6 +56,7 @@ app.use(express.json());
 // Ensure yt-dlp is available at runtime (download to local bin if missing)
 const LOCAL_BIN_DIR = path.join(__dirname, 'bin');
 const LOCAL_YTDLP = path.join(LOCAL_BIN_DIR, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
+const COOKIES_FILE = path.join(__dirname, 'cookies.txt');
 
 function isExecutable(p) {
   try { fsSync.accessSync(p, fsSync.constants.X_OK); return true; } catch { return false; }
@@ -262,7 +263,7 @@ app.post("/api/video-info", async (req, res) => {
       const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
       if (!ytDlpPath) throw new Error('yt-dlp binary not available');
       console.log('[video-info] Using yt-dlp path for spawn:', ytDlpPath);
-      const child = spawn(ytDlpPath, [
+      const args = [
         '-J',
         '--user-agent',
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -273,9 +274,13 @@ app.post("/api/video-info", async (req, res) => {
         '--sleep-requests',
         '1',
         '--sleep-interval',
-        '1',
-        processedUrl
-      ], { stdio: ['ignore', 'pipe', 'pipe'] });
+        '1'
+      ];
+      if (fsSync.existsSync(COOKIES_FILE)) {
+        args.push('--cookies', COOKIES_FILE);
+      }
+      args.push(processedUrl);
+      const child = spawn(ytDlpPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
       let out = '', errOut = '';
       child.stdout.on('data', (c) => out += c.toString());
       child.stderr.on('data', (c) => errOut += c.toString());
@@ -365,6 +370,9 @@ app.post("/api/download", async (req, res) => {
     try {
       const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
       const ytdlpArgs = ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', '-', url];
+      if (fsSync.existsSync(COOKIES_FILE)) {
+        ytdlpArgs.splice(4, 0, '--cookies', COOKIES_FILE);
+      }
       const child = spawn(ytDlpPath, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
       child.on('error', (err) => {
         console.error('[download] yt-dlp spawn error (first):', err);
@@ -417,6 +425,9 @@ app.post("/api/download", async (req, res) => {
     try {
       const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
       const ytdlpArgs = ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', '-', url];
+      if (fsSync.existsSync(COOKIES_FILE)) {
+        ytdlpArgs.splice(4, 0, '--cookies', COOKIES_FILE);
+      }
       const child = spawn(ytDlpPath, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
       child.on('error', (err) => {
@@ -449,7 +460,11 @@ app.post("/api/download", async (req, res) => {
       const tmpFilename = `video-${Date.now()}.%(ext)s`;
       const tmpPattern = path.join(tmpDir, tmpFilename);
       const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
-      const child = spawn(ytDlpPath, ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', tmpPattern, url], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const ytdlpArgs = ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', tmpPattern, url];
+      if (fsSync.existsSync(COOKIES_FILE)) {
+        ytdlpArgs.splice(4, 0, '--cookies', COOKIES_FILE);
+      }
+      const child = spawn(ytDlpPath, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
       child.stderr.on('data', (c) => console.log("[yt-dlp stderr]", String(c).slice(0,200)));
       const exitCode = await new Promise((resolve, reject) => {
         child.on('error', reject);
