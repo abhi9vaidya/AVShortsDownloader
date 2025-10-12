@@ -244,13 +244,8 @@ app.post("/api/video-info", async (req, res) => {
 
     console.log('[video-info] Request for URL:', url);
 
-    // Convert Shorts URL to watch URL for better compatibility
+    // Use original URL for yt-dlp (handles Shorts directly)
     let processedUrl = url;
-    if (url.includes('/shorts/')) {
-      const videoId = url.split('/shorts/')[1].split('?')[0];
-      processedUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      console.log('[video-info] Converted Shorts URL to:', processedUrl);
-    }
 
     // Wait for yt-dlp to be ready
     if (ytDlpReady) await ytDlpReady;
@@ -258,12 +253,14 @@ app.post("/api/video-info", async (req, res) => {
     let title = null, author = null, lengthSeconds = null, viewCount = null, thumbnail = null, description = null, uploadDate = null;
     let formats = [];
 
-    // Primary method: yt-dlp spawn -J
+    // Primary method: yt-dlp spawn -J with robust fallback
     try {
       const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
       if (!ytDlpPath) throw new Error('yt-dlp binary not available');
       console.log('[video-info] Using yt-dlp path for spawn:', ytDlpPath);
-      const args = [
+
+      // First try to get JSON metadata
+      const jsonArgs = [
         '--print-json',
         '--no-download',
         '--user-agent',
@@ -289,10 +286,11 @@ app.post("/api/video-info", async (req, res) => {
         'ext:mp4:m4a'
       ];
       if (fsSync.existsSync(COOKIES_FILE)) {
-        args.push('--cookies', COOKIES_FILE);
+        jsonArgs.push('--cookies', COOKIES_FILE);
       }
-      args.push(processedUrl);
-      const child = spawn(ytDlpPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      jsonArgs.push(processedUrl);
+
+      const child = spawn(ytDlpPath, jsonArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
       let out = '', errOut = '';
       child.stdout.on('data', (c) => out += c.toString());
       child.stderr.on('data', (c) => errOut += c.toString());
@@ -300,6 +298,7 @@ app.post("/api/video-info", async (req, res) => {
         child.on('error', reject);
         child.on('close', (code) => resolve(code));
       });
+
       if (exitCode === 0 && out) {
         try {
           const parsed = JSON.parse(out);
@@ -310,8 +309,14 @@ app.post("/api/video-info", async (req, res) => {
           thumbnail = (parsed.thumbnail || (Array.isArray(parsed.thumbnails) && parsed.thumbnails.length ? parsed.thumbnails[parsed.thumbnails.length-1].url : null)) || thumbnail;
           description = parsed.description || description;
           uploadDate = parsed.upload_date || uploadDate;
+
           const yformats = parsed.formats || [];
-          formats = yformats.map((f) => ({
+          // Prioritize MP4 formats with both audio and video
+          const mp4Combined = yformats.find(f => f.ext === 'mp4' && f.acodec !== 'none' && f.vcodec !== 'none');
+          const mp4Video = yformats.find(f => f.ext === 'mp4' && f.vcodec !== 'none');
+          const preferredFormats = mp4Combined ? [mp4Combined] : mp4Video ? [mp4Video] : yformats.slice(0, 10);
+
+          formats = preferredFormats.map((f) => ({
             quality: f.format_note || f.qualityLabel || (f.abr ? `${f.abr} kbps` : null) || null,
             container: f.ext || (f.format ? String(f.format).split(' ')[0] : null) || null,
             hasAudio: !!(f.acodec && f.acodec !== 'none') || !!f.abr,
@@ -324,12 +329,22 @@ app.post("/api/video-info", async (req, res) => {
         }
       } else {
         console.warn('[video-info] yt-dlp -J failed:', exitCode, errOut.slice(0,200));
+        // Fallback to best format if JSON fails
+        try {
+          const fallbackArgs = ['--no-playlist', '-f', 'best', '-o', '-', processedUrl];
+          if (fsSync.existsSync(COOKIES_FILE)) {
+            fallbackArgs.splice(4, 0, '--cookies', COOKIES_FILE);
+          }
+          const fallbackChild = spawn(ytDlpPath, fallbackArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+          fallbackChild.stderr.on('data', (c) => console.log('[video-info] fallback stderr:', String(c).slice(0,200)));
+          fallbackChild.on('close', (code) => console.log('[video-info] fallback closed with code', code));
+        } catch (fallbackErr) {
+          console.warn('[video-info] fallback also failed:', fallbackErr?.message || fallbackErr);
+        }
       }
     } catch (e) {
       console.warn('[video-info] yt-dlp spawn error:', e?.message || e);
     }
-
-    // Fallback to ytdl-core if yt-dlp failed
     if ((!formats || formats.length === 0) && ytdl) {
       try {
         const yi = await ytdl.getInfo(processedUrl);
