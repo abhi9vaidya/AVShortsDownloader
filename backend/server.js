@@ -163,38 +163,17 @@ app.post("/api/video-info", async (req, res) => {
     let title = null, author = null, lengthSeconds = null, viewCount = null, thumbnail = null, description = null, uploadDate = null;
     let formats = [];
 
-    // Prefer yt-dlp JSON first on servers (more robust)
-    try {
-      const parsed = await ytdlExec(url, { dumpJson: true });
-      title = parsed.title || title;
-      author = parsed.uploader || parsed.channel || author;
-      lengthSeconds = parsed.duration ? String(parsed.duration) : lengthSeconds;
-      viewCount = parsed.view_count ? String(parsed.view_count) : viewCount;
-      thumbnail = (parsed.thumbnail || (Array.isArray(parsed.thumbnails) && parsed.thumbnails.length ? parsed.thumbnails[parsed.thumbnails.length-1].url : null)) || thumbnail;
-      description = parsed.description || description;
-      uploadDate = parsed.upload_date || uploadDate;
-      const yformats = parsed.formats || [];
-      formats = yformats.map((f) => ({
-        quality: f.format_note || f.qualityLabel || (f.abr ? `${f.abr} kbps` : null) || null,
-        container: f.ext || (f.format ? String(f.format).split(' ')[0] : null) || null,
-        hasAudio: !!(f.acodec && f.acodec !== 'none') || !!f.abr,
-        hasVideo: !!(f.vcodec && f.vcodec !== 'none') || !!f.width,
-        itag: f.format_id || f.itag || null
-      }));
-    } catch (e) {
-      console.warn('[video-info] yt-dlp first error:', e?.message || e);
-    }
-
-    if (ytdl && (!formats || formats.length === 0)) {
+    // Prefer ytdl-core first for YouTube (more reliable for YouTube Shorts)
+    if (ytdl) {
       try {
         const yi = await ytdl.getInfo(url);
-        title = yi.videoDetails?.title || null;
-        author = yi.videoDetails?.author?.name || null;
+        title = yi.videoDetails?.title || title;
+        author = yi.videoDetails?.author?.name || author;
         lengthSeconds = String(yi.videoDetails?.lengthSeconds || "");
         viewCount = String(yi.videoDetails?.viewCount || "");
-        thumbnail = yi.videoDetails?.thumbnail?.thumbnails?.slice(-1)[0]?.url || null;
-        description = yi.videoDetails?.shortDescription || null;
-        uploadDate = yi.videoDetails?.uploadDate || null;
+        thumbnail = yi.videoDetails?.thumbnail?.thumbnails?.slice(-1)[0]?.url || thumbnail;
+        description = yi.videoDetails?.shortDescription || description;
+        uploadDate = yi.videoDetails?.uploadDate || uploadDate;
 
         formats = (yi.formats || []).map((f) => ({
           quality: f.qualityLabel || (f.audioBitrate ? `${f.audioBitrate} kbps` : null) || null,
@@ -205,6 +184,30 @@ app.post("/api/video-info", async (req, res) => {
         }));
       } catch (err) {
         console.warn('[video-info] ytdl-core failed:', err?.message || err);
+      }
+    }
+
+    // Fallback to yt-dlp if ytdl-core failed or no formats
+    if (!formats || formats.length === 0) {
+      try {
+        const parsed = await ytdlExec(url, { dumpJson: true });
+        title = parsed.title || title;
+        author = parsed.uploader || parsed.channel || author;
+        lengthSeconds = parsed.duration ? String(parsed.duration) : lengthSeconds;
+        viewCount = parsed.view_count ? String(parsed.view_count) : viewCount;
+        thumbnail = (parsed.thumbnail || (Array.isArray(parsed.thumbnails) && parsed.thumbnails.length ? parsed.thumbnails[parsed.thumbnails.length-1].url : null)) || thumbnail;
+        description = parsed.description || description;
+        uploadDate = parsed.upload_date || uploadDate;
+        const yformats = parsed.formats || [];
+        formats = yformats.map((f) => ({
+          quality: f.format_note || f.qualityLabel || (f.abr ? `${f.abr} kbps` : null) || null,
+          container: f.ext || (f.format ? String(f.format).split(' ')[0] : null) || null,
+          hasAudio: !!(f.acodec && f.acodec !== 'none') || !!f.abr,
+          hasVideo: !!(f.vcodec && f.vcodec !== 'none') || !!f.width,
+          itag: f.format_id || f.itag || null
+        }));
+      } catch (e) {
+        console.warn('[video-info] yt-dlp error:', e?.message || e);
       }
     }
 
