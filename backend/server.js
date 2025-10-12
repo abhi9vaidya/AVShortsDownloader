@@ -274,9 +274,9 @@ app.post("/api/download", async (req, res) => {
 
     // Prefer yt-dlp stdout streaming first (more reliable on servers)
     try {
-      const ytdlpCmd = 'yt-dlp';
+      const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
       const ytdlpArgs = ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', '-', url];
-      const child = spawn(ytdlpCmd, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(ytDlpPath, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
       child.on('error', (err) => {
         console.error('[download] yt-dlp spawn error (first):', err);
         if (!res.headersSent) {
@@ -326,9 +326,9 @@ app.post("/api/download", async (req, res) => {
 
     // Fallback: stream via yt-dlp stdout (merged)
     try {
-      const ytdlpCmd = "yt-dlp";
+      const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
       const ytdlpArgs = ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', '-', url];
-      const child = spawn(ytdlpCmd, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(ytDlpPath, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
       child.on('error', (err) => {
         console.error("[download] yt-dlp spawn error:", err);
@@ -359,7 +359,8 @@ app.post("/api/download", async (req, res) => {
       const tmpDir = os.tmpdir();
       const tmpFilename = `video-${Date.now()}.%(ext)s`;
       const tmpPattern = path.join(tmpDir, tmpFilename);
-      const child = spawn('yt-dlp', ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', tmpPattern, url], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
+      const child = spawn(ytDlpPath, ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', tmpPattern, url], { stdio: ['ignore', 'pipe', 'pipe'] });
       child.stderr.on('data', (c) => console.log("[yt-dlp stderr]", String(c).slice(0,200)));
       const exitCode = await new Promise((resolve, reject) => {
         child.on('error', reject);
@@ -442,7 +443,8 @@ app.post("/api/download-audio", async (req, res) => {
 
     // Prefer yt-dlp stdout streaming first (more reliable on servers)
     try {
-      const child = spawn('yt-dlp', ['--no-playlist', '-f', 'bestaudio', '-o', '-', url], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
+      const child = spawn(ytDlpPath, ['--no-playlist', '-f', 'bestaudio', '-o', '-', url], { stdio: ['ignore', 'pipe', 'pipe'] });
       child.on('error', (err) => {
         console.error('[download-audio] yt-dlp spawn error (first):', err);
         if (!res.headersSent) return res.status(500).json({ error: 'yt-dlp spawn failed', message: err.message });
@@ -487,7 +489,8 @@ app.post("/api/download-audio", async (req, res) => {
 
     // fallback: yt-dlp to stdout (bestaudio)
     try {
-      const child = spawn('yt-dlp', ['--no-playlist', '-f', 'bestaudio', '-o', '-', url], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
+      const child = spawn(ytDlpPath, ['--no-playlist', '-f', 'bestaudio', '-o', '-', url], { stdio: ['ignore', 'pipe', 'pipe'] });
       child.on('error', (err) => {
         console.error('[download-audio] yt-dlp spawn error:', err);
         if (!res.headersSent) return res.status(500).json({ error: 'yt-dlp spawn failed', message: err.message });
@@ -512,7 +515,8 @@ app.post("/api/download-audio", async (req, res) => {
       const tmpDir = os.tmpdir();
       const tmpFilename = `audio-${Date.now()}.%(ext)s`;
       const tmpPattern = path.join(tmpDir, tmpFilename);
-      const child = spawn('yt-dlp', ['--no-playlist', '-f', 'bestaudio', '-o', tmpPattern, url], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
+      const child = spawn(ytDlpPath, ['--no-playlist', '-f', 'bestaudio', '-o', tmpPattern, url], { stdio: ['ignore', 'pipe', 'pipe'] });
       child.stderr.on('data', (c) => console.log('[yt-dlp stderr]', String(c).slice(0,200)));
       const exitCode = await new Promise((resolve, reject) => {
         child.on('error', reject);

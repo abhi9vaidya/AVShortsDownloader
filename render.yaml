@@ -1,4 +1,4 @@
-# Render manifest: defines backend Docker web service and frontend static site
+i# Render manifest: defines backend Docker web service and frontend static site
 services:
   - type: web
     name: shorts-backend
