@@ -47,9 +47,7 @@ COPY --from=build /usr/src/app ./
 # Ensure backend/dist exists for servers that only serve backend/dist
 RUN if [ -d dist ]; then mkdir -p backend/dist && cp -r dist/* backend/dist/; fi || true
 
-# Download yt-dlp binary for streaming fallback
-RUN wget -q -O /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux \
-    && chmod a+rx /usr/local/bin/yt-dlp || true
+
 
 # Create downloads directory and chown to node user (best-effort)
 RUN mkdir -p /usr/src/app/downloads \

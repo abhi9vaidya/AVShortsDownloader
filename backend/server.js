@@ -72,7 +72,7 @@ async function ensureYtDlp() {
   }
   try {
     await fs.mkdir(LOCAL_BIN_DIR, { recursive: true });
-    const ytDlpUrl = process.platform === 'win32' ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+    const ytDlpUrl = process.platform === 'win32' ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux';
     const file = fsSync.createWriteStream(LOCAL_YTDLP);
     await new Promise((resolve, reject) => {
       const request = https.get(ytDlpUrl, (response) => {
