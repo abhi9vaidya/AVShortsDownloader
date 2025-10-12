@@ -271,10 +271,17 @@ app.post("/api/video-info", async (req, res) => {
         'https://www.youtube.com/',
         '--geo-bypass',
         '--no-check-certificates',
+        '--extractor-args',
+        'youtube:player_skip=js,dash,translated_subs',
+        '--extractor-retries',
+        '3',
         '--sleep-requests',
-        '1',
+        '2',
         '--sleep-interval',
-        '1'
+        '5',
+        '--no-warnings',
+        '--ignore-errors',
+        '--force-ipv4'
       ];
       if (fsSync.existsSync(COOKIES_FILE)) {
         args.push('--cookies', COOKIES_FILE);
