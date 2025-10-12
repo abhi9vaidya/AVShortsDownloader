@@ -1,4 +1,4 @@
-npm// server.js (updated)
+// server.js (updated)
 // Serves a production frontend build (./dist) at / and provides API endpoints.
 // If creating the downloads directory fails due to permissions, fall back to os.tmpdir().
 
