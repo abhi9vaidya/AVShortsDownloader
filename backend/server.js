@@ -1,4 +1,4 @@
-// server.js (updated)
+npm// server.js (updated)
 // Serves a production frontend build (./dist) at / and provides API endpoints.
 // If creating the downloads directory fails due to permissions, fall back to os.tmpdir().
 
@@ -102,11 +102,13 @@ async function ensureYtDlp() {
 
 let ytDlpReady = null;
 
+// Disable yt-dlp update checks
+process.env.YTDL_NO_UPDATE = '1';
+
 // Add local bin to PATH and kick off ensure in background
 process.env.PATH = `${LOCAL_BIN_DIR}:${process.env.PATH || ''}`;
 ytDlpReady = ensureYtDlp();
 ytDlpReady.then((p) => console.log('[init] yt-dlp available at', p || 'not found')).catch((e) => console.warn('[init] yt-dlp ensure failed', e));
-
 // Serve static frontend from dist if it exists (production build)
 // Try both ./dist (when built inside backend) and ../dist (when built at repo root)
 const POSSIBLE_DIST_DIRS = [
@@ -209,7 +211,7 @@ app.post("/api/video-info", async (req, res) => {
       try {
         const ytDlpBin = process.env.YTDLP_PATH;
         if (!ytDlpBin) throw new Error('yt-dlp binary not available');
-        const parsed = await ytdlExec(processedUrl, { dumpJson: true }, { bin: ytDlpBin });
+        const parsed = await ytdlExec(processedUrl, { dumpJson: true, bin: ytDlpBin });
         title = parsed.title || title;
         author = parsed.uploader || parsed.channel || author;
         lengthSeconds = parsed.duration ? String(parsed.duration) : lengthSeconds;
@@ -260,6 +262,7 @@ app.post("/api/video-info", async (req, res) => {
       try {
         const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
         if (!ytDlpPath) throw new Error('yt-dlp binary not available');
+        console.log('[video-info] Using yt-dlp path for spawn:', ytDlpPath);
         const child = spawn(ytDlpPath, ['-J', processedUrl], { stdio: ['ignore', 'pipe', 'pipe'] });
         let out = '', errOut = '';
         child.stdout.on('data', (c) => out += c.toString());
