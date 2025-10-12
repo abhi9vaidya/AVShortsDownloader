@@ -13,6 +13,13 @@ RUN npm ci --production=false --ignore-scripts
 # Copy source
 COPY . .
 
+# Install backend dependencies
+RUN if [ -f backend/package.json ]; then \
+      echo "Installing backend dependencies" && npm --prefix backend ci --ignore-scripts; \
+    else \
+      echo "No backend/package.json found - skipping backend install"; \
+    fi
+
 # Run frontend build - IMPORTANT:
 # Ensure your package.json has a "build" script that builds into ./dist
 # e.g. "build": "vite build" or "react-scripts build"
@@ -53,4 +60,4 @@ ENV PORT=10000
 EXPOSE 10000
 
 # Default command
-CMD ["node", "server.js"]
+CMD ["node", "backend/server.js"]
