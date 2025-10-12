@@ -72,8 +72,10 @@ async function ensureYtDlp() {
   }
   try {
     await fs.mkdir(LOCAL_BIN_DIR, { recursive: true });
-    // Use a direct URL to avoid redirect issues - this is a stable version
-    const ytDlpUrl = process.platform === 'win32' ? 'https://github.com/yt-dlp/yt-dlp/releases/download/2024.10.22/yt-dlp.exe' : 'https://github.com/yt-dlp/yt-dlp/releases/download/2024.10.22/yt-dlp_linux';
+    // Use a more recent stable version URL
+    const ytDlpUrl = process.platform === 'win32'
+      ? 'https://github.com/yt-dlp/yt-dlp/releases/download/2024.12.13/yt-dlp.exe'
+      : 'https://github.com/yt-dlp/yt-dlp/releases/download/2024.12.13/yt-dlp_linux';
     const file = fsSync.createWriteStream(LOCAL_YTDLP);
 
     await new Promise((resolve, reject) => {
@@ -92,15 +94,23 @@ async function ensureYtDlp() {
       request.on('error', reject);
     });
 
-    // Ensure executable permissions
+    // Ensure executable permissions with retry
     if (process.platform !== 'win32') {
-      await fs.chmod(LOCAL_YTDLP, 0o755);
-      // Verify permissions
       try {
+        await fs.chmod(LOCAL_YTDLP, 0o755);
+        // Verify permissions
         await fs.access(LOCAL_YTDLP, fs.constants.X_OK);
         console.log('[init] yt-dlp executable permissions set successfully');
       } catch (permErr) {
         console.warn('[init] failed to set executable permissions:', permErr.message);
+        // Try alternative permission setting
+        try {
+          const { execSync } = require('child_process');
+          execSync(`chmod +x ${LOCAL_YTDLP}`);
+          console.log('[init] yt-dlp permissions set via chmod command');
+        } catch (cmdErr) {
+          console.warn('[init] chmod command also failed:', cmdErr.message);
+        }
       }
     }
 
