@@ -1,4 +1,4 @@
-// server.js (final ready-to-save)
+// server.js (ready-to-save)
 // Serves a production frontend build (./dist) at / and provides API endpoints.
 // If creating the downloads directory fails due to permissions, fall back to os.tmpdir().
 
@@ -57,14 +57,38 @@ const LOCAL_BIN_DIR = path.join(__dirname, 'bin');
 const LOCAL_YTDLP = path.join(LOCAL_BIN_DIR, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
 const COOKIES_FILE = path.join(__dirname, 'cookies.txt');
 
-// return ['--cookies', COOKIES_FILE] only if readable by current process
+// If cookies.txt is present but not writable, create a writable copy in tmpdir and return that.
+// Cache the tmp copy path in TEMP_COOKIES_COPY.
+let TEMP_COOKIES_COPY = null;
 function getCookieArgs() {
   try {
+    // must be at least readable to be useful
     fsSync.accessSync(COOKIES_FILE, fsSync.constants.R_OK);
-    return ['--cookies', COOKIES_FILE];
   } catch (e) {
-    // not readable or doesn't exist — don't pass cookies
     return [];
+  }
+
+  // If original is writable by the process, use it directly
+  try {
+    fsSync.accessSync(COOKIES_FILE, fsSync.constants.W_OK);
+    return ['--cookies', COOKIES_FILE];
+  } catch (_) {
+    // not writable — attempt to copy once into tmp and use that
+    if (TEMP_COOKIES_COPY && fsSync.existsSync(TEMP_COOKIES_COPY)) {
+      return ['--cookies', TEMP_COOKIES_COPY];
+    }
+    try {
+      const tmpCopy = path.join(os.tmpdir(), `cookies-${Date.now()}.txt`);
+      fsSync.copyFileSync(COOKIES_FILE, tmpCopy);
+      // make the tmp copy readable/writable by the process only
+      try { fsSync.chmodSync(tmpCopy, 0o600); } catch (e) {}
+      TEMP_COOKIES_COPY = tmpCopy;
+      console.log('[init] copied cookies to tmp:', tmpCopy);
+      return ['--cookies', TEMP_COOKIES_COPY];
+    } catch (copyErr) {
+      console.warn('[init] failed to copy cookies to tmp:', copyErr?.message || copyErr);
+      return [];
+    }
   }
 }
 
@@ -196,6 +220,7 @@ process.env.YTDL_NO_UPDATE = '1';
 process.env.PATH = `${LOCAL_BIN_DIR}:${process.env.PATH || ''}`;
 ytDlpReady = ensureYtDlp();
 ytDlpReady.then((p) => console.log('[init] yt-dlp available at', p || 'not found')).catch((e) => console.warn('[init] yt-dlp ensure failed', e));
+
 // Serve static frontend from dist if it exists (production build)
 // Try both ./dist (when built inside backend) and ../dist (when built at repo root)
 const POSSIBLE_DIST_DIRS = [
@@ -204,7 +229,6 @@ const POSSIBLE_DIST_DIRS = [
 ];
 const DIST_DIR = POSSIBLE_DIST_DIRS.find((p) => fsSync.existsSync(p));
 
-// Diagnostics: log candidates and selection
 try {
   console.log('[init] DIST candidates check:', POSSIBLE_DIST_DIRS.map(p => [p, fsSync.existsSync(p)]));
 } catch (e) {}
@@ -220,7 +244,6 @@ if (DIST_DIR) {
     res.sendFile(path.join(DIST_DIR, "index.html"));
   });
 } else {
-  // If dist doesn't exist, keep a small root message for convenience
   try { console.log('[init] No dist dir found. Root will show API banner. __dirname=', __dirname); } catch(e) {}
   app.get("/", (req, res) => {
     res.send("Swift Shorts Downloader API — health: GET /health — downloads dir: " + DOWNLOADS_DIR);
@@ -296,7 +319,7 @@ app.post("/api/video-info", async (req, res) => {
         'ext:mp4:m4a'
       ];
 
-      // ensure child uses TMPDIR and only pass cookies if readable
+      // ensure child uses TMPDIR and only pass cookies if usable
       const tmpDir = os.tmpdir();
       const cookieArgs = getCookieArgs();
       jsonArgs.push(...cookieArgs, processedUrl);

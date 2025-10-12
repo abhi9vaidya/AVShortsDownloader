@@ -31,7 +31,7 @@ interface VideoResult {
   description?: string;
 }
 
-const BACKEND = import.meta.env.VITE_BACKEND_URL || window.location.origin;
+const BACKEND = import.meta.env.VITE_BACKEND_URL || '';
 
 const DownloaderForm = () => {
   const [url, setUrl] = useState("");

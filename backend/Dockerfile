@@ -56,6 +56,10 @@ RUN curl -L -o /usr/src/app/backend/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/
     && chmod +x /usr/src/app/backend/bin/yt-dlp \
     && chown node:node /usr/src/app/backend/bin/yt-dlp || true
 
+# Copy cookies.txt and make it writable by node user
+COPY backend/cookies.txt backend/cookies.txt
+RUN chown node:node /usr/src/app/backend/cookies.txt || true
+
 # Use non-root user
 USER node
 

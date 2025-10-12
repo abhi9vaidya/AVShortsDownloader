@@ -1,7 +1,7 @@
 // apiClient.js - Drop this file into your frontend project
 
 class ShortsDownloaderAPI {
-  constructor(baseURL = 'http://localhost:3000') {
+  constructor(baseURL = '') {
     this.baseURL = baseURL;
   }
 
