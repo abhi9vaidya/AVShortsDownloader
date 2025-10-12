@@ -1,5 +1,5 @@
 # Dockerfile - builds frontend (dist/) then runs server
-FROM node:18-alpine AS build
+FROM node:20-alpine AS build
 
 # Install tools needed for some node-gyp dependencies and yt-dlp build steps
 RUN apk add --no-cache python3 make g++ git wget ca-certificates
@@ -32,7 +32,7 @@ RUN if [ -f package.json ]; then \
     fi
 
 # ---- runtime image ----
-FROM node:18-alpine AS runtime
+FROM node:20-alpine AS runtime
 
 # Install runtime deps (ffmpeg for merging, wget to fetch yt-dlp, curl for alternative download, python3 for yt-dlp execution)
 RUN apk add --no-cache ffmpeg wget ca-certificates curl python3
@@ -48,8 +48,8 @@ COPY --from=build /usr/src/app ./
 RUN if [ -d dist ]; then mkdir -p backend/dist && cp -r dist/* backend/dist/; fi || true
 
 # Create downloads directory and bin directory, and chown to node user (best-effort)
-RUN mkdir -p /usr/src/app/downloads /usr/src/app/backend/bin \
-    && chown -R node:node /usr/src/app/downloads /usr/src/app/backend/bin || true
+RUN mkdir -p /usr/src/app/downloads /usr/src/app/backend/downloads /usr/src/app/backend/bin \
+    && chown -R node:node /usr/src/app/downloads /usr/src/app/backend/downloads /usr/src/app/backend/bin || true
 
 # Pre-install yt-dlp using curl to avoid runtime download issues
 RUN curl -L -o /usr/src/app/backend/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \

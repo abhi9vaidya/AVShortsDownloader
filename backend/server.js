@@ -394,8 +394,16 @@ app.post("/api/download", async (req, res) => {
     // Prefer yt-dlp stdout streaming first (more reliable on servers)
     try {
       const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
+      const tmpDir = require('os').tmpdir();
       const cookieArgs = fsSync.existsSync(COOKIES_FILE) ? ['--cookies', COOKIES_FILE] : [];
-      const ytdlpArgs = ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', '-', ...cookieArgs, url];
+      const ytdlpArgs = [
+        '--no-playlist',
+        '-f', 'bestvideo+bestaudio/best',
+        '-o', '-',
+        '--temp-dir', tmpDir,
+        ...cookieArgs,
+        url
+      ];
       const child = spawn(ytDlpPath, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
       child.on('error', (err) => {
         console.error('[download] yt-dlp spawn error (first):', err);
@@ -481,10 +489,15 @@ app.post("/api/download", async (req, res) => {
       const tmpFilename = `video-${Date.now()}.%(ext)s`;
       const tmpPattern = path.join(tmpDir, tmpFilename);
       const ytDlpPath = process.env.YTDLP_PATH || LOCAL_YTDLP || '/usr/local/bin/yt-dlp';
-      const ytdlpArgs = ['--no-playlist', '-f', 'bestvideo+bestaudio/best', '-o', tmpPattern, url];
-      if (fsSync.existsSync(COOKIES_FILE)) {
-        ytdlpArgs.splice(4, 0, '--cookies', COOKIES_FILE);
-      }
+      const cookieArgs = fsSync.existsSync(COOKIES_FILE) ? ['--cookies', COOKIES_FILE] : [];
+      const ytdlpArgs = [
+        '--no-playlist',
+        '-f', 'bestvideo+bestaudio/best',
+        '-o', tmpPattern,
+        '--temp-dir', tmpDir,
+        ...cookieArgs,
+        url
+      ];
       const child = spawn(ytDlpPath, ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
       child.stderr.on('data', (c) => console.log("[yt-dlp stderr]", String(c).slice(0,200)));
       const exitCode = await new Promise((resolve, reject) => {
