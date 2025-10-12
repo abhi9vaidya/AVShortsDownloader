@@ -51,9 +51,15 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Serve static frontend from ./dist if it exists (production build)
-const DIST_DIR = path.join(__dirname, "dist");
-if (fsSync.existsSync(DIST_DIR)) {
+// Serve static frontend from dist if it exists (production build)
+// Try both ./dist (when built inside backend) and ../dist (when built at repo root)
+const POSSIBLE_DIST_DIRS = [
+  path.join(__dirname, "dist"),
+  path.join(__dirname, "..", "dist"),
+];
+const DIST_DIR = POSSIBLE_DIST_DIRS.find((p) => fsSync.existsSync(p));
+
+if (DIST_DIR) {
   app.use(express.static(DIST_DIR));
   // SPA fallback: serve index.html for any non-API GET
   app.get(/^\/(?!api\/|health).*/, (req, res) => {
