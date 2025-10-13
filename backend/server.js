@@ -280,6 +280,10 @@ app.post("/api/video-info", async (req, res) => {
     // Use original URL for yt-dlp (handles Shorts directly)
     let processedUrl = url;
 
+    // Initialize variables
+    let title = null, author = null, lengthSeconds = null, viewCount = null, thumbnail = null, description = null, uploadDate = null;
+    let formats = [];
+
     // Try play-dl first (more reliable for some cases)
     try {
       const info = await play.video_info(processedUrl);
