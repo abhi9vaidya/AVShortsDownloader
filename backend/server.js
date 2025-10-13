@@ -270,6 +270,10 @@ let ytdl;
 try { ytdl = require('ytdl-core'); } catch (e) { ytdl = null; }
 
 app.post("/api/video-info", async (req, res) => {
+  // Initialize variables at the start of the function to prevent reference errors
+  let title = null, author = null, lengthSeconds = null, viewCount = null, thumbnail = null, description = null, uploadDate = null;
+  let formats = [];
+
   try {
     const { url } = req.body || {};
     if (!url) return res.status(400).json({ error: "URL is required" });
@@ -279,10 +283,6 @@ app.post("/api/video-info", async (req, res) => {
 
     // Use original URL for yt-dlp (handles Shorts directly)
     let processedUrl = url;
-
-    // Initialize variables
-    let title = null, author = null, lengthSeconds = null, viewCount = null, thumbnail = null, description = null, uploadDate = null;
-    let formats = [];
 
     // Try play-dl first (more reliable for some cases)
     try {
@@ -387,11 +387,11 @@ app.post("/api/video-info", async (req, res) => {
         }
       } else {
         console.warn('[video-info] yt-dlp -J failed:', exitCode, errOut.slice(0,200));
-        // Fallback to best format if JSON fails
+        // Fallback without format selection to let yt-dlp choose best
         try {
           const cookieArgsFb = getCookieArgs();
           const tmpDirFb = os.tmpdir();
-          const fallbackArgs = ['--no-playlist', '-f', 'best', '-o', '-', ...cookieArgsFb, processedUrl];
+          const fallbackArgs = ['--no-playlist', '-o', '-', ...cookieArgsFb, processedUrl];
           const fallbackEnv = Object.assign({}, process.env, { TMPDIR: tmpDirFb });
           const fallbackChild = spawn(ytDlpPath, fallbackArgs, { stdio: ['ignore', 'pipe', 'pipe'], env: fallbackEnv });
           fallbackChild.stderr.on('data', (c) => console.log('[video-info] fallback stderr:', String(c).slice(0,200)));
