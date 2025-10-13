@@ -35,7 +35,10 @@ RUN if [ -f package.json ]; then \
 FROM node:20-alpine AS runtime
 
 # Install runtime deps (ffmpeg for merging, wget to fetch yt-dlp, curl for alternative download, python3 for yt-dlp execution)
-RUN apk add --no-cache ffmpeg wget ca-certificates curl python3 python3-pip && pip3 install yt-dlp
+# Alpine: use py3-pip package name
+RUN apk add --no-cache ffmpeg wget ca-certificates curl python3 py3-pip && pip3 install --no-cache-dir yt-dlp
+# Alternative for Debian-slim: FROM node:20-slim AS runtime
+# RUN apt-get update && apt-get install -y python3 python3-pip ca-certificates ffmpeg wget curl && rm -rf /var/lib/apt/lists/* && pip3 install --no-cache-dir yt-dlp
 
 WORKDIR /usr/src/app
 

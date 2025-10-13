@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const sanitize = require('sanitize-filename');
 
-const YTDLP_PATH = process.env.YTDLP_PATH || path.join(__dirname, 'bin', process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
+const YTDLP_PATH = process.env.YTDLP_PATH || 'yt-dlp'; // Use yt-dlp from PATH (installed via pip3)
 const COOKIE_PATH = process.env.COOKIE_FILE_PATH || path.join(__dirname, 'cookies.txt');
 const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(__dirname, 'downloads');
 
