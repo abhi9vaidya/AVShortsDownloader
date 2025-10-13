@@ -9,6 +9,11 @@ services:
     plan: free
     buildCommand: ""
     startCommand: ""
+    envVars:
+      COOKIE_FILE_PATH: /etc/secrets/cookies.txt
+    secretFiles:
+      - source: cookies.txt
+        destination: /etc/secrets/cookies.txt
 
   - type: static
     name: shorts-frontend

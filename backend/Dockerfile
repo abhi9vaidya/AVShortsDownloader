@@ -35,7 +35,7 @@ RUN if [ -f package.json ]; then \
 FROM node:20-alpine AS runtime
 
 # Install runtime deps (ffmpeg for merging, wget to fetch yt-dlp, curl for alternative download, python3 for yt-dlp execution)
-RUN apk add --no-cache ffmpeg wget ca-certificates curl python3
+RUN apk add --no-cache ffmpeg wget ca-certificates curl python3 python3-pip && pip3 install yt-dlp
 
 WORKDIR /usr/src/app
 
