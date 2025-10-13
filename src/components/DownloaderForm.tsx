@@ -31,7 +31,7 @@ interface VideoResult {
   description?: string;
 }
 
-const BACKEND = (import.meta.env.VITE_BACKEND_URL as string) || (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:10000';
 
 const DownloaderForm = () => {
   const [url, setUrl] = useState("");
@@ -41,21 +41,23 @@ const DownloaderForm = () => {
   const [selectedItag, setSelectedItag] = useState<string | number | null>("highest");
   const [audioOnly, setAudioOnly] = useState(false);
 
-  const validateUrl = (url: string) => {
-    const regex = /^(https?:\/\/)?(www\.)?(youtube\.com\/shorts\/|youtu\.be\/)[a-zA-Z0-9_-]+/;
-    return regex.test(url);
+  const validateUrl = (input: string) => {
+    if (!input) return false;
+    const url = input.trim();
+    // Accept Shorts, Watch, youtu.be, with optional params
+    return /^(https?:\/\/)?(www\.)?(m\.)?(youtube\.com|youtu\.be)\//i.test(url);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!url) {
-      toast.error("Please enter a YouTube Shorts URL");
+      toast.error("Please enter a YouTube URL");
       return;
     }
 
     if (!validateUrl(url)) {
-      toast.error("Please enter a valid YouTube Shorts URL");
+      toast.error("Please enter a valid YouTube URL");
       return;
     }
 
@@ -196,7 +198,7 @@ const DownloaderForm = () => {
             <div className="flex gap-2">
               <Input
                 type="text"
-                placeholder="Paste YouTube Shorts URL (e.g., https://youtube.com/shorts/abc123)"
+                placeholder="Paste YouTube URL (Shorts or Watch, e.g., https://youtube.com/shorts/abc123 or https://www.youtube.com/watch?v=VIDEO_ID)"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 className="flex-1 h-12 text-base"

@@ -1,66 +1,38 @@
-# Dockerfile - builds frontend (dist/) then runs server
-FROM node:18-alpine AS build
+# Dockerfile (Debian-slim, robust yt-dlp install into venv)
+FROM node:20-slim
 
-# Install tools needed for some node-gyp dependencies and yt-dlp build steps
-RUN apk add --no-cache python3 make g++ git wget ca-certificates
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install runtime deps and python venv tooling
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+       ffmpeg \
+       wget \
+       ca-certificates \
+       curl \
+       git \
+       python3 \
+       python3-venv \
+       python3-distutils \
+  && rm -rf /var/lib/apt/lists/*
+
+# Create a small virtualenv for yt-dlp and install it there
+RUN python3 -m venv /opt/yt-venv \
+  && /opt/yt-venv/bin/pip install --upgrade pip setuptools \
+  && /opt/yt-venv/bin/pip install --no-cache-dir yt-dlp \
+  && ln -s /opt/yt-venv/bin/yt-dlp /usr/local/bin/yt-dlp
 
 WORKDIR /usr/src/app
 
-# Copy package files and install
-COPY package.json package-lock.json* ./
-RUN npm ci --production=false --ignore-scripts
+# Install backend node deps (cache-friendly)
+COPY backend/package*.json ./backend/
+RUN cd backend && npm ci --omit=dev --ignore-scripts
 
-# Copy source
+# Copy app source
 COPY . .
 
-# Install backend dependencies
-RUN if [ -f backend/package.json ]; then \
-      echo "Installing backend dependencies" && npm --prefix backend ci --ignore-scripts; \
-    else \
-      echo "No backend/package.json found - skipping backend install"; \
-    fi
+# Make included binary executable if present
+RUN chmod +x backend/bin/yt-dlp || true
 
-# Run frontend build - IMPORTANT:
-# Ensure your package.json has a "build" script that builds into ./dist
-# e.g. "build": "vite build" or "react-scripts build"
-RUN if [ -f package.json ]; then \
-      if npm run | grep -q build; then \
-        echo "Running npm run build" && npm run build || echo "npm run build failed (continue)"; \
-      else \
-        echo "No build script - skipping frontend build"; \
-      fi \
-    fi
-
-# ---- runtime image ----
-FROM node:18-alpine AS runtime
-
-# Install runtime deps (ffmpeg for merging, wget to fetch yt-dlp)
-RUN apk add --no-cache ffmpeg wget ca-certificates
-
-WORKDIR /usr/src/app
-
-# Copy node modules from build stage (if any)
-COPY --from=build /usr/src/app/node_modules ./node_modules
-# Copy app code and built dist (if built)
-COPY --from=build /usr/src/app ./
-
-# Ensure backend/dist exists for servers that only serve backend/dist
-RUN if [ -d dist ]; then mkdir -p backend/dist && cp -r dist/* backend/dist/; fi || true
-
-# Download yt-dlp binary for streaming fallback
-RUN wget -q -O /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-    && chmod a+rx /usr/local/bin/yt-dlp || true
-
-# Create downloads directory and chown to node user (best-effort)
-RUN mkdir -p /usr/src/app/downloads \
-    && chown -R node:node /usr/src/app || true
-
-# Use non-root user
-USER node
-
-# Expose port (Render uses $PORT environment variable)
-ENV PORT=10000
 EXPOSE 10000
-
-# Default command
 CMD ["node", "backend/server.js"]
