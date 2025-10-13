@@ -1,29 +1,37 @@
-# Dockerfile (recommended: Debian-slim)
+# Dockerfile (Debian-slim, robust yt-dlp install into venv)
 FROM node:20-slim
 
-# Install runtime deps and yt-dlp
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install runtime deps and python venv tooling
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
        ffmpeg \
        wget \
        ca-certificates \
        curl \
-       python3 \
-       python3-pip \
        git \
-  && pip3 install --no-cache-dir yt-dlp \
+       python3 \
+       python3-venv \
+       python3-distutils \
   && rm -rf /var/lib/apt/lists/*
+
+# Create a small virtualenv for yt-dlp and install it there
+RUN python3 -m venv /opt/yt-venv \
+  && /opt/yt-venv/bin/pip install --upgrade pip setuptools \
+  && /opt/yt-venv/bin/pip install --no-cache-dir yt-dlp \
+  && ln -s /opt/yt-venv/bin/yt-dlp /usr/local/bin/yt-dlp
 
 WORKDIR /usr/src/app
 
-# Copy package files and install deps
+# Install node deps first (cache-friendly)
 COPY package*.json ./
 RUN npm install --production
 
 # Copy app source
 COPY . .
 
-# make sure any included binary is executable (no-op if not present)
+# Make included binary executable if present
 RUN chmod +x backend/bin/yt-dlp || true
 
 EXPOSE 10000
