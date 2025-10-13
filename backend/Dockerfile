@@ -26,7 +26,7 @@ WORKDIR /usr/src/app
 
 # Install backend node deps (cache-friendly)
 COPY backend/package*.json ./backend/
-RUN cd backend && npm ci --omit=dev
+RUN cd backend && npm ci --omit=dev --ignore-scripts
 
 # Copy app source
 COPY . .
