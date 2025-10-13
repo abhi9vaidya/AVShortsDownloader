@@ -24,9 +24,9 @@ RUN python3 -m venv /opt/yt-venv \
 
 WORKDIR /usr/src/app
 
-# Install node deps first (cache-friendly)
-COPY package*.json ./
-RUN npm ci --omit=dev
+# Install backend node deps (cache-friendly)
+COPY backend/package*.json ./backend/
+RUN cd backend && npm ci --omit=dev
 
 # Copy app source
 COPY . .
