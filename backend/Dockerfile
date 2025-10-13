@@ -26,7 +26,7 @@ WORKDIR /usr/src/app
 
 # Install node deps first (cache-friendly)
 COPY package*.json ./
-RUN npm install --production
+RUN npm ci --omit=dev
 
 # Copy app source
 COPY . .
