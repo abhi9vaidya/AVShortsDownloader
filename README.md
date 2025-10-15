@@ -1,4 +1,4 @@
-# Welcome to your ShortsDownloader project
+# ShortsDownloader project
 
 ## Project info
 
